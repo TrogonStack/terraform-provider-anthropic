@@ -23,7 +23,7 @@ Single test:
 TF_ACC=1 go test ./internal/provider/ -v -run TestAccWorkspace
 ```
 
-Runtime credentials the provider itself needs (not required to run the test suite, which never calls a real API) follow the Anthropic Go SDK credential chain: `ANTHROPIC_API_KEY` (an Admin API key), `ANTHROPIC_AUTH_TOKEN` (an `org:admin` OAuth token), `ANTHROPIC_PROFILE`, or Workload Identity Federation env vars. The `api_key` and `auth_token` attributes override the chain and are mutually exclusive. Service account and federation endpoints accept only an OAuth or federation token.
+Runtime credentials the provider itself needs (not required to run the test suite, which never calls a real API) follow the Anthropic Go SDK credential chain: `ANTHROPIC_API_KEY` (an Admin API key), `ANTHROPIC_AUTH_TOKEN` (an `org:admin` OAuth token), `ANTHROPIC_PROFILE`, or Workload Identity Federation env vars. The `api_key` and `auth_token` attributes are mutually exclusive and replace the chain entirely (`option.WithoutEnvironmentDefaults()`), so no environment, profile, or federation credential is sent alongside them; `ANTHROPIC_BASE_URL` is still honored. Service account and federation endpoints accept only an OAuth or federation token.
 
 ## Skills
 
@@ -56,13 +56,13 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 
 - `tags` is Optional + Computed with an empty-map default, so Terraform owns the whole map. Update always sends the full map; a non-nil empty map marshals as `"tags":{}` despite `omitzero`, which is what clears tags. The API docs do not say whether update replaces or merges, so Update fails with a diagnostic if the response tags differ from the plan
 - `external_key_id` is write-once in the API. `writeOnceString()` in `helpers.go` rejects a plan that changes or removes a set value; it is never `RequiresReplace`, because replacing a workspace archives it
-- `data_residency` is an Optional + Computed `SingleNestedAttribute` whose object default matches the API defaults (`us`, unrestricted, `global`), so leaving it unset never drifts. `allowed_inference_geos` is Optional only: null maps to the API's `"unrestricted"` union variant. `workspace_geo` is `RequiresReplace`. Geo values are deliberately not validated client-side, so a geo the API adds works without a provider release; an empty `allowed_inference_geos` set is rejected
+- `data_residency` is an Optional + Computed `SingleNestedAttribute` with `objectplanmodifier.UseStateForUnknown()` and no default. Leaving it unset means Terraform does not manage residency: Create omits it so the API applies its defaults, Update never sends it, and an imported workspace in any geo plans no change. A static default would plan an update, or a replace through `workspace_geo`, for every workspace whose residency differs from it. `workspace_geo` and `default_inference_geo` are Optional + Computed with `UseStateForUnknown` and no default, and an unknown value is omitted from the request. `workspace_geo` uses `RequiresReplaceIfConfigured`, so only an explicitly configured geo that differs from state replaces the workspace (which archives it). `allowed_inference_geos` is Optional only: when `data_residency` is set, null maps to the API's `"unrestricted"` union variant. Geo values are deliberately not validated client-side, so a geo the API adds works without a provider release; an empty `allowed_inference_geos` set is rejected
 
 ### Testing
 
 Tests use an in-memory fake of the Admin API, never real API calls:
 
-- `fake_admin_api_test.go`: `fakeAdminAPI` is an `http.Handler` serving the workspace endpoints with a mutex-guarded map. It requires `X-Api-Key: testAPIKey`, answers unknown routes with 404, returns Anthropic-shaped errors (`{"type":"error","error":{...}}`), assigns `display_color` and `compartment_id`, and applies the API's `data_residency` defaults. `archive` and `remove` simulate out-of-band changes; hold `mu` when calling them from a test
+- `fake_admin_api_test.go`: `fakeAdminAPI` is an `http.Handler` serving the workspace endpoints with a mutex-guarded map. It requires `X-Api-Key: testAPIKey`, answers unknown routes with 404, returns Anthropic-shaped errors (`{"type":"error","error":{...}}`), assigns `display_color` and `compartment_id`, and applies the API's `data_residency` defaults. `seed`, `archive` and `remove` simulate out-of-band changes; hold `mu` when calling them from a test
 - `setupTestServer()` serves the fake from an `httptest.Server`; `setupTestClient()` builds a client with `newClient` pointed at it and injects it as `testAPIClient`
 - `live_test.go`: `TestLive_*` run against a real organization, skipped unless `TF_ACC` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` are set; `mise run test` skips them. They create uniquely named workspaces, and destroy archives them
 

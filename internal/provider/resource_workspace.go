@@ -16,20 +16,15 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapdefault"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
-const (
-	defaultWorkspaceGeo        = string(anthropic.DataResidencyCreateConfigWorkspaceGeoUs)
-	defaultDefaultInferenceGeo = string(anthropic.DataResidencyCreateConfigDefaultInferenceGeoGlobal)
-	reservedTagPrefix          = "anthropic"
-)
+const reservedTagPrefix = "anthropic"
 
 var (
 	hexColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
@@ -154,11 +149,6 @@ func (r *workspaceResource) Metadata(_ context.Context, req resource.MetadataReq
 }
 
 func (r *workspaceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	defaultResidency, _ := dataResidency{
-		workspaceGeo:        defaultWorkspaceGeo,
-		defaultInferenceGeo: defaultDefaultInferenceGeo,
-	}.objectValue(context.Background())
-
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Manages an Anthropic workspace through the Admin API.
 
@@ -213,22 +203,24 @@ created again on the next apply.`,
 			"data_residency": schema.SingleNestedAttribute{
 				Optional:            true,
 				Computed:            true,
-				Default:             objectdefault.StaticValue(defaultResidency),
-				MarkdownDescription: "Data residency configuration. Defaults to the API's own defaults: `workspace_geo = \"us\"`, unrestricted inference geos, and `default_inference_geo = \"global\"`.",
+				MarkdownDescription: "Data residency configuration. When unset, Terraform does not manage residency: a new workspace gets the API's defaults (`workspace_geo = \"us\"`, unrestricted inference geos, `default_inference_geo = \"global\"`), and an existing or imported workspace keeps its current settings.",
+				PlanModifiers: []planmodifier.Object{
+					objectplanmodifier.UseStateForUnknown(),
+				},
 				Attributes: map[string]schema.Attribute{
 					"workspace_geo": schema.StringAttribute{
 						Optional:            true,
 						Computed:            true,
-						Default:             stringdefault.StaticString(defaultWorkspaceGeo),
-						MarkdownDescription: "Geographic region for workspace data storage. Immutable after creation, so changing it replaces the workspace. Defaults to `us`.",
+						MarkdownDescription: "Geographic region for workspace data storage. Immutable after creation, so configuring a value that differs from the workspace's replaces it. When unset, the API assigns one on creation (`us`) and an existing workspace keeps its own.",
 						PlanModifiers: []planmodifier.String{
-							stringplanmodifier.RequiresReplace(),
+							stringplanmodifier.UseStateForUnknown(),
+							stringplanmodifier.RequiresReplaceIfConfigured(),
 						},
 					},
 					"allowed_inference_geos": schema.SetAttribute{
 						Optional:            true,
 						ElementType:         types.StringType,
-						MarkdownDescription: "Permitted inference geos, e.g. `[\"us\"]`. Must not be empty; leave unset to allow every geo (the API's `unrestricted`).",
+						MarkdownDescription: "Permitted inference geos, e.g. `[\"us\"]`. Must not be empty; leave unset to allow every geo (the API's `unrestricted`) whenever `data_residency` is set.",
 						Validators: []validator.Set{
 							setvalidator.SizeAtLeast(1),
 						},
@@ -236,8 +228,10 @@ created again on the next apply.`,
 					"default_inference_geo": schema.StringAttribute{
 						Optional:            true,
 						Computed:            true,
-						Default:             stringdefault.StaticString(defaultDefaultInferenceGeo),
-						MarkdownDescription: "Inference geo applied when requests omit it. Must be one of `allowed_inference_geos` unless those are unrestricted. Defaults to `global`.",
+						MarkdownDescription: "Inference geo applied when requests omit it. Must be one of `allowed_inference_geos` unless those are unrestricted. When unset, the API assigns one on creation (`global`) and an existing workspace keeps its own.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
 					},
 				},
 			},
@@ -280,15 +274,20 @@ func (r *workspaceResource) Create(ctx context.Context, req resource.CreateReque
 
 	tags, d := mapStrings(ctx, plan.Tags)
 	resp.Diagnostics.Append(d...)
-	residency, d := dataResidencyFromObject(ctx, plan.DataResidency)
-	resp.Diagnostics.Append(d...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	params := anthropic.OrganizationWorkspaceNewParams{
-		Name:          plan.Name.ValueString(),
-		DataResidency: residency.createParam(),
+		Name: plan.Name.ValueString(),
+	}
+	if isConfigured(plan.DataResidency) {
+		residency, d := dataResidencyFromObject(ctx, plan.DataResidency)
+		resp.Diagnostics.Append(d...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		params.DataResidency = residency.createParam()
 	}
 	if len(tags) > 0 {
 		params.Tags = tags
@@ -359,7 +358,7 @@ func (r *workspaceResource) Update(ctx context.Context, req resource.UpdateReque
 	if state.ExternalKeyId.IsNull() && isConfigured(plan.ExternalKeyId) {
 		params.ExternalKeyID = anthropic.String(plan.ExternalKeyId.ValueString())
 	}
-	if !plan.DataResidency.Equal(state.DataResidency) {
+	if isConfigured(plan.DataResidency) && !plan.DataResidency.Equal(state.DataResidency) {
 		residency, d := dataResidencyFromObject(ctx, plan.DataResidency)
 		resp.Diagnostics.Append(d...)
 		if resp.Diagnostics.HasError() {

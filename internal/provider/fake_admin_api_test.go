@@ -99,17 +99,7 @@ func (f *fakeAdminAPI) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f.nextID++
-	ws := &fakeWorkspace{
-		ID:            fmt.Sprintf("wrkspc_%04d", f.nextID),
-		Type:          "workspace",
-		Name:          *body.Name,
-		DisplayColor:  fakeDisplayColors[f.nextID%len(fakeDisplayColors)],
-		Tags:          map[string]string{},
-		CompartmentID: fmt.Sprintf("compartment-%04d", f.nextID),
-		CreatedAt:     fakeCreatedAt.Format(time.RFC3339Nano),
-		DataResidency: fakeDataResidency{WorkspaceGeo: "us", AllowedInferenceGeos: "unrestricted", DefaultInferenceGeo: "global"},
-	}
+	ws := f.newWorkspace(*body.Name)
 	if body.DisplayColor != nil {
 		ws.DisplayColor = *body.DisplayColor
 	}
@@ -127,6 +117,20 @@ func (f *fakeAdminAPI) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	f.workspaces[ws.ID] = ws
 	writeFakeJSON(w, http.StatusOK, ws)
+}
+
+func (f *fakeAdminAPI) newWorkspace(name string) *fakeWorkspace {
+	f.nextID++
+	return &fakeWorkspace{
+		ID:            fmt.Sprintf("wrkspc_%04d", f.nextID),
+		Type:          "workspace",
+		Name:          name,
+		DisplayColor:  fakeDisplayColors[f.nextID%len(fakeDisplayColors)],
+		Tags:          map[string]string{},
+		CompartmentID: fmt.Sprintf("compartment-%04d", f.nextID),
+		CreatedAt:     fakeCreatedAt.Format(time.RFC3339Nano),
+		DataResidency: fakeDataResidency{WorkspaceGeo: "us", AllowedInferenceGeos: "unrestricted", DefaultInferenceGeo: "global"},
+	}
 }
 
 func (f *fakeAdminAPI) getWorkspace(w http.ResponseWriter, _ *http.Request, ws *fakeWorkspace) {
@@ -180,8 +184,15 @@ func (f *fakeAdminAPI) archiveWorkspace(w http.ResponseWriter, _ *http.Request, 
 	writeFakeJSON(w, http.StatusOK, ws)
 }
 
-// archive and remove simulate changes made outside Terraform. Callers outside
-// ServeHTTP must hold mu.
+// seed, archive and remove simulate changes made outside Terraform. Callers
+// outside ServeHTTP must hold mu.
+func (f *fakeAdminAPI) seed(name string, residency fakeDataResidency) string {
+	ws := f.newWorkspace(name)
+	ws.DataResidency = residency
+	f.workspaces[ws.ID] = ws
+	return ws.ID
+}
+
 func (f *fakeAdminAPI) archive(id string) {
 	archivedAt := fakeCreatedAt.Add(time.Hour).Format(time.RFC3339Nano)
 	f.workspaces[id].ArchivedAt = &archivedAt

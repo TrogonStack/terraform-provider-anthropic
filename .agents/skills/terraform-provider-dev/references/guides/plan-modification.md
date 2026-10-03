@@ -80,7 +80,7 @@ Like RequiresReplace but only triggers if the practitioner explicitly configured
 stringplanmodifier.RequiresReplaceIfConfigured()
 ```
 
-Not used anywhere in this provider yet.
+`anthropic_workspace` uses it on `data_residency.workspace_geo`, paired with `UseStateForUnknown` and no default. Plain `RequiresReplace` with a static default would replace, and so archive, any imported workspace whose geo differs from the default when the practitioner leaves the attribute unset.
 
 ## Available Modifier Packages
 

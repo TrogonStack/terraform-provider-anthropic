@@ -78,43 +78,65 @@ func TestNewClientRejectsBothCredentials(t *testing.T) {
 }
 
 func TestNewClientSendsTheConfiguredCredential(t *testing.T) {
-	cases := []struct {
-		name   string
-		cfg    clientConfig
-		header string
-		want   string
+	envs := []struct {
+		name      string
+		apiKey    string
+		authToken string
 	}{
-		{"api key", clientConfig{apiKey: "sk-ant-admin-test"}, "X-Api-Key", "sk-ant-admin-test"},
-		{"auth token", clientConfig{authToken: "token-test"}, "Authorization", "Bearer token-test"},
+		{"both env credentials", "sk-ant-admin-from-env", "token-from-env"},
+		{"env api key", "sk-ant-admin-from-env", ""},
+		{"env auth token", "", "token-from-env"},
+	}
+	cases := []struct {
+		name       string
+		cfg        clientConfig
+		header     string
+		want       string
+		absent     string
+		envBaseURL bool
+	}{
+		{"api key", clientConfig{apiKey: "sk-ant-admin-test"}, "X-Api-Key", "sk-ant-admin-test", "Authorization", false},
+		{"auth token", clientConfig{authToken: "token-test"}, "Authorization", "Bearer token-test", "X-Api-Key", false},
+		{"api key with base url from env", clientConfig{apiKey: "sk-ant-admin-test"}, "X-Api-Key", "sk-ant-admin-test", "Authorization", true},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("ANTHROPIC_API_KEY", "")
-			t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+		for _, env := range envs {
+			t.Run(tc.name+"/"+env.name, func(t *testing.T) {
+				t.Setenv("ANTHROPIC_API_KEY", env.apiKey)
+				t.Setenv("ANTHROPIC_AUTH_TOKEN", env.authToken)
 
-			var got http.Header
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				got = r.Header.Clone()
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"id":"org_test","name":"Test","type":"organization"}`))
-			}))
-			t.Cleanup(server.Close)
+				var got http.Header
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					got = r.Header.Clone()
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"id":"org_test","name":"Test","type":"organization"}`))
+				}))
+				t.Cleanup(server.Close)
 
-			tc.cfg.baseURL = server.URL
-			client, err := newClient(tc.cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := client.Organization.Get(t.Context()); err != nil {
-				t.Fatal(err)
-			}
+				cfg := tc.cfg
+				if tc.envBaseURL {
+					t.Setenv("ANTHROPIC_BASE_URL", server.URL)
+				} else {
+					cfg.baseURL = server.URL
+				}
+				client, err := newClient(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := client.Organization.Get(t.Context()); err != nil {
+					t.Fatal(err)
+				}
 
-			if v := got.Get(tc.header); v != tc.want {
-				t.Errorf("%s = %q, want %q", tc.header, v, tc.want)
-			}
-			if got.Get("Anthropic-Version") == "" {
-				t.Error("anthropic-version header is missing")
-			}
-		})
+				if v := got.Get(tc.header); v != tc.want {
+					t.Errorf("%s = %q, want %q", tc.header, v, tc.want)
+				}
+				if v := got.Get(tc.absent); v != "" {
+					t.Errorf("%s = %q, want it absent", tc.absent, v)
+				}
+				if got.Get("Anthropic-Version") == "" {
+					t.Error("anthropic-version header is missing")
+				}
+			})
+		}
 	}
 }

@@ -66,7 +66,7 @@ func setupTestClient(t *testing.T, server *httptest.Server) {
 }
 ```
 
-`provider_test.go` also isolates credential-resolution tests from the real environment with `t.Setenv("ANTHROPIC_API_KEY", "")` and `t.Setenv("ANTHROPIC_AUTH_TOKEN", "")`, so a developer's own exported credentials never leak into a test run.
+`TestNewClientSendsTheConfiguredCredential` in `provider_test.go` sets `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` with `t.Setenv` to values that differ from the configured credential, alone and together, and asserts the configured credential is the only one sent, so an environment credential never rides along with a configured one.
 
 ## Basic Test Structure
 
@@ -134,7 +134,7 @@ resource "anthropic_foo" "test" {
 }
 ```
 
-This is the shape to reach for whenever a future resource has an attribute using `RequiresReplace` (see `references/guides/plan-modification.md`): step two changes that attribute, and `plancheck.ExpectResourceAction(..., plancheck.ResourceActionReplace)` asserts the plan modifier actually fires. No such attribute is known to exist on any resource yet.
+This is the shape to reach for whenever a future resource has an attribute using `RequiresReplace` (see `references/guides/plan-modification.md`): step two changes that attribute, and `plancheck.ExpectResourceAction(..., plancheck.ResourceActionReplace)` asserts the plan modifier actually fires. `TestAccWorkspace_ImportKeepsDataResidency` does this for `data_residency.workspace_geo`, and also imports a workspace `seed`ed into the fake with a non-default geo and asserts `plancheck.ExpectEmptyPlan()` while the attribute is unset.
 
 ## Import Tests
 

@@ -20,7 +20,7 @@ provider "anthropic" {
 | `auth_token` | `ANTHROPIC_AUTH_TOKEN` | OAuth bearer token with the `org:admin` scope. Optional, sensitive. |
 | `base_url`   | `ANTHROPIC_BASE_URL`   | API base URL. Defaults to `https://api.anthropic.com`.             |
 
-The provider is built on the official [Anthropic Go SDK](https://github.com/anthropics/anthropic-sdk-go) and accepts the same credentials as the SDK and the `ant` CLI. Set at most one of `api_key` and `auth_token`. When neither is set, the SDK resolves `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, the profile named by `ANTHROPIC_PROFILE`, Workload Identity Federation (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN_FILE`), then the active profile.
+The provider is built on the official [Anthropic Go SDK](https://github.com/anthropics/anthropic-sdk-go) and accepts the same credentials as the SDK and the `ant` CLI. Set at most one of `api_key` and `auth_token`; a configured one is the only credential sent, regardless of the environment. When neither is set, the SDK resolves `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, the profile named by `ANTHROPIC_PROFILE`, Workload Identity Federation (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN_FILE`), then the active profile.
 
 Prefer Workload Identity Federation in CI, so the pipeline never holds a long-lived admin secret. Service account and federation endpoints accept only an OAuth or federation token, never an Admin API key.
 
@@ -50,7 +50,7 @@ resource "anthropic_workspace" "production" {
 
 The Admin API has no method to delete a workspace, so destroying `anthropic_workspace` archives it. Archiving cannot be undone and archives every API key created for the workspace. A workspace archived outside Terraform is removed from state and created again on the next apply.
 
-`tags` is authoritative: removing a tag from the configuration removes it from the workspace. `external_key_id` is write-once, so Terraform rejects a plan that changes or removes it once set. Changing `data_residency.workspace_geo` replaces the workspace.
+`tags` is authoritative: removing a tag from the configuration removes it from the workspace. `external_key_id` is write-once, so Terraform rejects a plan that changes or removes it once set. When `data_residency` is unset, Terraform leaves the workspace's residency alone, so importing a workspace never plans a change to it. Configuring a `data_residency.workspace_geo` that differs from the workspace's replaces the workspace.
 
 ## Contributing
 

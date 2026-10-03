@@ -82,6 +82,12 @@ func expectAction(action plancheck.ResourceActionType) resource.ConfigPlanChecks
 	}
 }
 
+func expectEmptyPlan() resource.ConfigPlanChecks {
+	return resource.ConfigPlanChecks{
+		PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+	}
+}
+
 func TestAccWorkspace_Basic(t *testing.T) {
 	fake := newFakeAdminAPI()
 	server := setupTestServer(t, fake)
@@ -116,9 +122,7 @@ resource "anthropic_workspace" "test" {
   name = "Production"
 }
 `,
-				ConfigPlanChecks: resource.ConfigPlanChecks{
-					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
-				},
+				ConfigPlanChecks: expectEmptyPlan(),
 			},
 			{
 				ResourceName:      workspaceAddress,
@@ -232,9 +236,26 @@ resource "anthropic_workspace" "test" {
   name = "Residency"
 }
 `,
+				ConfigPlanChecks: expectEmptyPlan(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.allowed_inference_geos.#", "1"),
+					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.default_inference_geo", "us"),
+					checkFakeAllowedGeos(fake, []string{"us"}),
+				),
+			},
+			{
+				Config: testProviderConfig + `
+resource "anthropic_workspace" "test" {
+  name = "Residency"
+  data_residency = {
+    default_inference_geo = "global"
+  }
+}
+`,
 				ConfigPlanChecks: expectAction(plancheck.ResourceActionUpdate),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr(workspaceAddress, "id", "wrkspc_0001"),
+					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.workspace_geo", "us"),
 					resource.TestCheckNoResourceAttr(workspaceAddress, "data_residency.allowed_inference_geos"),
 					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.default_inference_geo", "global"),
 					checkFakeAllowedGeos(fake, "unrestricted"),
@@ -251,11 +272,83 @@ resource "anthropic_workspace" "test" {
   name = "Residency"
 }
 `,
+				ConfigPlanChecks: expectEmptyPlan(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(workspaceAddress, "id", "wrkspc_0001"),
+					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.workspace_geo", "elsewhere"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccWorkspace_ImportKeepsDataResidency(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	fake.mu.Lock()
+	importedId := fake.seed("Imported", fakeDataResidency{
+		WorkspaceGeo:         "eu",
+		AllowedInferenceGeos: []string{"eu"},
+		DefaultInferenceGeo:  "eu",
+	})
+	fake.mu.Unlock()
+
+	unmanaged := testProviderConfig + `
+resource "anthropic_workspace" "test" {
+  name = "Imported"
+}
+`
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             checkWorkspacesArchived(fake),
+		Steps: []resource.TestStep{
+			{
+				Config:             unmanaged,
+				ResourceName:       workspaceAddress,
+				ImportState:        true,
+				ImportStateId:      importedId,
+				ImportStatePersist: true,
+			},
+			{
+				Config:           unmanaged,
+				ConfigPlanChecks: expectEmptyPlan(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(workspaceAddress, "id", importedId),
+					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.workspace_geo", "eu"),
+					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.default_inference_geo", "eu"),
+					checkFakeAllowedGeos(fake, []string{"eu"}),
+				),
+			},
+			{
+				Config: testProviderConfig + `
+resource "anthropic_workspace" "test" {
+  name = "Imported"
+  data_residency = {
+    workspace_geo          = "eu"
+    allowed_inference_geos = ["eu"]
+  }
+}
+`,
+				ConfigPlanChecks: expectEmptyPlan(),
+			},
+			{
+				Config: testProviderConfig + `
+resource "anthropic_workspace" "test" {
+  name = "Imported"
+  data_residency = {
+    workspace_geo = "us"
+  }
+}
+`,
 				ConfigPlanChecks: expectAction(plancheck.ResourceActionDestroyBeforeCreate),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.workspace_geo", "us"),
+					resource.TestCheckNoResourceAttr(workspaceAddress, "data_residency.allowed_inference_geos"),
 					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.default_inference_geo", "global"),
-					checkIdChanged(&firstId),
+					checkIdChanged(&importedId),
 				),
 			},
 		},

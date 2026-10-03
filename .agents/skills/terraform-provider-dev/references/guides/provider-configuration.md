@@ -81,22 +81,32 @@ resp.ResourceData = client
 
 ```go
 func newClient(cfg clientConfig) (*anthropic.Client, error) {
-    opts := []option.RequestOption{option.WithMaxRetries(maxRetries)}
-    switch {
-    case cfg.apiKey != "" && cfg.authToken != "":
+    if cfg.apiKey != "" && cfg.authToken != "" {
         return nil, errConflictingCredential
-    case cfg.apiKey != "":
+    }
+    opts := []option.RequestOption{option.WithMaxRetries(maxRetries)}
+    baseURL := cfg.baseURL
+    if cfg.apiKey != "" || cfg.authToken != "" {
+        opts = append(opts, option.WithoutEnvironmentDefaults(), option.WithHTTPClient(newHTTPClient()))
+        if baseURL == "" {
+            baseURL = os.Getenv("ANTHROPIC_BASE_URL")
+        }
+    }
+    if cfg.apiKey != "" {
         opts = append(opts, option.WithAPIKey(cfg.apiKey))
-    case cfg.authToken != "":
+    }
+    if cfg.authToken != "" {
         opts = append(opts, option.WithAuthToken(cfg.authToken))
     }
-    if cfg.baseURL != "" {
-        opts = append(opts, option.WithBaseURL(cfg.baseURL))
+    if baseURL != "" {
+        opts = append(opts, option.WithBaseURL(baseURL))
     }
     client := anthropic.NewClient(opts...)
     return &client, nil
 }
 ```
+
+`anthropic.NewClient` prepends `DefaultClientOptions()`, which applies the first credential the chain finds. Appending `WithAPIKey` alone would still send an `ANTHROPIC_AUTH_TOKEN` bearer token, and `WithAuthToken` alone would still send `ANTHROPIC_API_KEY`, because the two options set different headers. `option.WithoutEnvironmentDefaults()` skips the chain, so a configured credential is the only one sent. It also skips the SDK's default HTTP client and `ANTHROPIC_BASE_URL`, which `newClient` restores (`newHTTPClient` mirrors the SDK's response-header timeout).
 
 If neither `api_key` nor `auth_token` is set in configuration, `anthropic.NewClient` falls back to the official Go SDK's own credential chain rather than anything this provider implements: `ANTHROPIC_API_KEY`, then `ANTHROPIC_AUTH_TOKEN`, then the profile named by `ANTHROPIC_PROFILE`, then workload identity federation from `ANTHROPIC_FEDERATION_RULE_ID`/`ANTHROPIC_ORGANIZATION_ID`/`ANTHROPIC_IDENTITY_TOKEN_FILE`, then the active or default profile. There is no provider-level "no credential resolved" error for this case; if nothing in the chain resolves, the SDK's first outgoing request fails and that failure is what practitioners see.
 
@@ -163,9 +173,9 @@ Unlike a provider where different resources need different credentials, every fu
 
 | Config Attribute | Resolved By                 | Notes             |
 | ------------------ | ---------------------------- | --------------------------- |
-| `api_key`         | `newClient`, then the SDK's own chain | Sensitive string, Optional. An Admin API key, `sk-ant-admin...` |
-| `auth_token`      | `newClient`, then the SDK's own chain | Sensitive string, Optional. Conflicts with `api_key` (`errConflictingCredential`) |
-| `base_url`        | `newClient`, then the SDK's own default | String, Optional |
+| `api_key`         | `newClient`, else the SDK's own chain | Sensitive string, Optional. An Admin API key, `sk-ant-admin...`. When set, the chain is skipped |
+| `auth_token`      | `newClient`, else the SDK's own chain | Sensitive string, Optional. Conflicts with `api_key` (`errConflictingCredential`). When set, the chain is skipped |
+| `base_url`        | `newClient`, then `ANTHROPIC_BASE_URL`, then the SDK's own default | String, Optional |
 
 When neither credential attribute is set, the SDK (not this provider) resolves, in order: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_PROFILE`, the workload identity federation env vars (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN_FILE`), then the active or default profile. There is no separate, provider-specific admin-key environment variable, and no up-front "missing credential" error; an unresolved credential fails on the first request the SDK makes.
 

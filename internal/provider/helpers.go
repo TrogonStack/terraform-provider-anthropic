@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -23,7 +24,7 @@ func rsId() schema.StringAttribute {
 	}
 }
 
-func isConfigured(v types.String) bool {
+func isConfigured(v attr.Value) bool {
 	return !v.IsNull() && !v.IsUnknown()
 }
 
