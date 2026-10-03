@@ -48,12 +48,12 @@ resource "anthropic_workspace" "production" {
 
 ### Required
 
-- `name` (String) The workspace name.
+- `name` (String) The workspace name. Must not be empty.
 
 ### Optional
 
 - `data_residency` (Attributes) Data residency configuration. Defaults to the API's own defaults: `workspace_geo = "us"`, unrestricted inference geos, and `default_inference_geo = "global"`. (see [below for nested schema](#nestedatt--data_residency))
-- `display_color` (String) Hex color code representing the workspace in the Claude Console, e.g. `#6C5BB9`. The API assigns one when unset.
+- `display_color` (String) Hex color code in `#RRGGBB` form representing the workspace in the Claude Console, e.g. `#6C5BB9`. The API assigns one when unset.
 - `external_key_id` (String) ID of the customer-managed encryption key (CMEK) configuration for the workspace. Requires CMEK to be enabled for the organization. Write-once: it can be added to a workspace that has none, but once set it cannot be changed or removed, and a plan that tries to is rejected.
 - `tags` (Map of String) User-defined tags as string key-value pairs. Keys may not begin with `anthropic`. Terraform manages the whole map, so tags added outside Terraform are removed on the next apply.
 
@@ -68,7 +68,7 @@ resource "anthropic_workspace" "production" {
 
 Optional:
 
-- `allowed_inference_geos` (Set of String) Permitted inference geos, e.g. `["us"]`. Leave unset to allow every geo (the API's `unrestricted`).
+- `allowed_inference_geos` (Set of String) Permitted inference geos, e.g. `["us"]`. Must not be empty; leave unset to allow every geo (the API's `unrestricted`).
 - `default_inference_geo` (String) Inference geo applied when requests omit it. Must be one of `allowed_inference_geos` unless those are unrestricted. Defaults to `global`.
 - `workspace_geo` (String) Geographic region for workspace data storage. Immutable after creation, so changing it replaces the workspace. Defaults to `us`.
 

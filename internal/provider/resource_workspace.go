@@ -3,9 +3,13 @@ package provider
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/hashicorp/terraform-plugin-framework-validators/mapvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -22,9 +26,13 @@ import (
 )
 
 const (
-	defaultWorkspaceGeo        = "us"
-	defaultDefaultInferenceGeo = "global"
+	defaultWorkspaceGeo        = string(anthropic.DataResidencyCreateConfigWorkspaceGeoUs)
+	defaultDefaultInferenceGeo = string(anthropic.DataResidencyCreateConfigDefaultInferenceGeoGlobal)
 	reservedTagPrefix          = "anthropic"
+)
+
+var (
+	hexColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 )
 
 var (
@@ -165,14 +173,20 @@ created again on the next apply.`,
 			"id": rsId(),
 			"name": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "The workspace name.",
+				MarkdownDescription: "The workspace name. Must not be empty.",
+				Validators: []validator.String{
+					stringvalidator.LengthAtLeast(1),
+				},
 			},
 			"display_color": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "Hex color code representing the workspace in the Claude Console, e.g. `#6C5BB9`. The API assigns one when unset.",
+				MarkdownDescription: "Hex color code in `#RRGGBB` form representing the workspace in the Claude Console, e.g. `#6C5BB9`. The API assigns one when unset.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
+				},
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(hexColorPattern, "must be a hex color code such as `#6C5BB9`"),
 				},
 			},
 			"tags": schema.MapAttribute{
@@ -182,7 +196,9 @@ created again on the next apply.`,
 				Default:             mapdefault.StaticValue(types.MapValueMust(types.StringType, map[string]attr.Value{})),
 				MarkdownDescription: "User-defined tags as string key-value pairs. Keys may not begin with `anthropic`. Terraform manages the whole map, so tags added outside Terraform are removed on the next apply.",
 				Validators: []validator.Map{
-					mapKeysWithoutPrefix(reservedTagPrefix),
+					mapvalidator.KeysAre(
+						stringvalidator.RegexMatches(withoutPrefix(reservedTagPrefix), fmt.Sprintf("must not begin with `%s`", reservedTagPrefix)),
+					),
 				},
 			},
 			"external_key_id": schema.StringAttribute{
@@ -212,7 +228,10 @@ created again on the next apply.`,
 					"allowed_inference_geos": schema.SetAttribute{
 						Optional:            true,
 						ElementType:         types.StringType,
-						MarkdownDescription: "Permitted inference geos, e.g. `[\"us\"]`. Leave unset to allow every geo (the API's `unrestricted`).",
+						MarkdownDescription: "Permitted inference geos, e.g. `[\"us\"]`. Must not be empty; leave unset to allow every geo (the API's `unrestricted`).",
+						Validators: []validator.Set{
+							setvalidator.SizeAtLeast(1),
+						},
 					},
 					"default_inference_geo": schema.StringAttribute{
 						Optional:            true,

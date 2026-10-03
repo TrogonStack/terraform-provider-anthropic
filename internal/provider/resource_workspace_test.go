@@ -241,17 +241,19 @@ resource "anthropic_workspace" "test" {
 				),
 			},
 			{
+				PreConfig: func() {
+					fake.mu.Lock()
+					defer fake.mu.Unlock()
+					fake.workspaces[firstId].DataResidency.WorkspaceGeo = "elsewhere"
+				},
 				Config: testProviderConfig + `
 resource "anthropic_workspace" "test" {
   name = "Residency"
-  data_residency = {
-    workspace_geo = "eu"
-  }
 }
 `,
 				ConfigPlanChecks: expectAction(plancheck.ResourceActionDestroyBeforeCreate),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.workspace_geo", "eu"),
+					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.workspace_geo", "us"),
 					resource.TestCheckResourceAttr(workspaceAddress, "data_residency.default_inference_geo", "global"),
 					checkIdChanged(&firstId),
 				),
@@ -366,6 +368,45 @@ resource "anthropic_workspace" "test" {
 	}
 }
 
+func TestAccWorkspace_RejectsInvalidConfig(t *testing.T) {
+	cases := []struct {
+		name   string
+		body   string
+		expect string
+	}{
+		{"empty name", `
+  name = ""`, `string length must be at least 1`},
+		{"display color without hash", `
+  name          = "Invalid"
+  display_color = "6C5BB9"`, `must be a hex color code`},
+		{"display color short form", `
+  name          = "Invalid"
+  display_color = "#FFF"`, `must be a hex color code`},
+		{"empty allowed inference geos", `
+  name = "Invalid"
+  data_residency = {
+    allowed_inference_geos = []
+  }`, `set must contain at least 1\s+elements`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := setupTestServer(t, newFakeAdminAPI())
+			setupTestClient(t, server)
+
+			resource.Test(t, resource.TestCase{
+				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+				Steps: []resource.TestStep{
+					{
+						Config:      testProviderConfig + `resource "anthropic_workspace" "test" {` + tc.body + "\n}\n",
+						PlanOnly:    true,
+						ExpectError: regexp.MustCompile(tc.expect),
+					},
+				},
+			})
+		})
+	}
+}
+
 func TestAccWorkspace_RejectsReservedTagKeys(t *testing.T) {
 	server := setupTestServer(t, newFakeAdminAPI())
 	setupTestClient(t, server)
@@ -382,7 +423,7 @@ resource "anthropic_workspace" "test" {
   }
 }
 `,
-				ExpectError: regexp.MustCompile(`Invalid Map Key`),
+				ExpectError: regexp.MustCompile(`must not begin with\s+.anthropic.`),
 			},
 		},
 	})

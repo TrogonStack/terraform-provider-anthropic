@@ -56,7 +56,7 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 
 - `tags` is Optional + Computed with an empty-map default, so Terraform owns the whole map. Update always sends the full map; a non-nil empty map marshals as `"tags":{}` despite `omitzero`, which is what clears tags. The API docs do not say whether update replaces or merges, so Update fails with a diagnostic if the response tags differ from the plan
 - `external_key_id` is write-once in the API. `writeOnceString()` in `helpers.go` rejects a plan that changes or removes a set value; it is never `RequiresReplace`, because replacing a workspace archives it
-- `data_residency` is an Optional + Computed `SingleNestedAttribute` whose object default matches the API defaults (`us`, unrestricted, `global`), so leaving it unset never drifts. `allowed_inference_geos` is Optional only: null maps to the API's `"unrestricted"` union variant. `workspace_geo` is `RequiresReplace`. Geo values are not validated client-side; the API validates them
+- `data_residency` is an Optional + Computed `SingleNestedAttribute` whose object default matches the API defaults (`us`, unrestricted, `global`), so leaving it unset never drifts. `allowed_inference_geos` is Optional only: null maps to the API's `"unrestricted"` union variant. `workspace_geo` is `RequiresReplace`. Geo values are deliberately not validated client-side, so a geo the API adds works without a provider release; an empty `allowed_inference_geos` set is rejected
 
 ### Testing
 

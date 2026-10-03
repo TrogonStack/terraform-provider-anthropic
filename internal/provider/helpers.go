@@ -3,14 +3,13 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strings"
+	"regexp"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -80,31 +79,17 @@ func (m writeOnceStringModifier) PlanModifyString(_ context.Context, req planmod
 		fmt.Sprintf("%s is already set to %s and cannot be changed or removed. Set it back to that value.", req.Path, req.StateValue))
 }
 
-// mapKeysWithoutPrefix rejects map keys that begin with a reserved prefix.
-func mapKeysWithoutPrefix(prefix string) validator.Map {
-	return mapKeysWithoutPrefixValidator{prefix: prefix}
-}
-
-type mapKeysWithoutPrefixValidator struct {
-	prefix string
-}
-
-func (v mapKeysWithoutPrefixValidator) Description(_ context.Context) string {
-	return fmt.Sprintf("keys must not begin with %q", v.prefix)
-}
-
-func (v mapKeysWithoutPrefixValidator) MarkdownDescription(ctx context.Context) string {
-	return v.Description(ctx)
-}
-
-func (v mapKeysWithoutPrefixValidator) ValidateMap(_ context.Context, req validator.MapRequest, resp *validator.MapResponse) {
-	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
-		return
-	}
-	for key := range req.ConfigValue.Elements() {
-		if strings.HasPrefix(key, v.prefix) {
-			resp.Diagnostics.AddAttributeError(req.Path.AtMapKey(key), "Invalid Map Key",
-				fmt.Sprintf("Key %q must not begin with %q.", key, v.prefix))
+// withoutPrefix matches any string that does not begin with prefix, spelled
+// out per character because Go regexp has no negative lookahead.
+func withoutPrefix(prefix string) *regexp.Regexp {
+	pattern := ""
+	for i := len(prefix) - 1; i >= 0; i-- {
+		c := regexp.QuoteMeta(prefix[i : i+1])
+		next := ""
+		if pattern != "" {
+			next = "|" + c + pattern
 		}
+		pattern = "(?:$|[^" + c + "]" + next + ")"
 	}
+	return regexp.MustCompile("^" + pattern)
 }
