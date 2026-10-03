@@ -1,6 +1,6 @@
 # Resource Lifecycle
 
-No resource exists in this provider yet. Everything below is the generic Plugin Framework contract plus the API facts already known from `client.go`, written as a pattern to follow rather than a description of real code. Where a convention depends on the API's actual behavior (not-found mapping, destroy semantics, retry-on-conflict), this guide says so instead of guessing.
+No resource exists in this provider yet. Everything below is the generic Plugin Framework contract plus the API facts already known from `client.go` and the official Go SDK (`github.com/anthropics/anthropic-sdk-go` v1.78.0), written as a pattern to follow rather than a description of real code. Where a convention depends on the API's actual behavior (not-found mapping, destroy semantics, retry-on-conflict), this guide says so instead of guessing.
 
 ## Interface
 
@@ -65,17 +65,17 @@ func (r *fooResource) Configure(_ context.Context, req resource.ConfigureRequest
     if req.ProviderData == nil {
         return
     }
-    client, ok := req.ProviderData.(*apiClient)
+    client, ok := req.ProviderData.(*anthropic.Client)
     if !ok {
         resp.Diagnostics.AddError("Unexpected Resource Configure Type",
-            fmt.Sprintf("Expected *apiClient, got: %T", req.ProviderData))
+            fmt.Sprintf("Expected *anthropic.Client, got: %T", req.ProviderData))
         return
     }
     r.client = client
 }
 ```
 
-The `nil` check is required: Configure is called during validation when provider data is not yet available.
+The `nil` check is required: Configure is called during validation when provider data is not yet available. `*anthropic.Client` is the official SDK's client type; see `references/guides/provider-configuration.md` for how `Configure` builds it.
 
 ## Create
 
@@ -95,7 +95,7 @@ func (r *fooResource) Create(ctx context.Context, req resource.CreateRequest, re
         return
     }
 
-    httpResp, err := r.client.newRequest(ctx, http.MethodPost, "/v1/organizations/foos", fooCreateBody{
+    created, err := r.client.Organization.Workspaces.New(ctx, anthropic.OrganizationWorkspaceNewParams{
         Name: plan.Name.ValueString(),
     })
     if err != nil {
@@ -103,18 +103,12 @@ func (r *fooResource) Create(ctx context.Context, req resource.CreateRequest, re
         return
     }
 
-    var created fooResponse
-    if err := json.NewDecoder(httpResp.Body).Decode(&created); err != nil {
-        resp.Diagnostics.AddError("API Error", fmt.Sprintf("Unable to parse create response: %s", err))
-        return
-    }
-
-    applyFoo(&plan, &created)
+    applyFoo(&plan, created)
     resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 ```
 
-`/v1/organizations/foos`, `fooCreateBody`, and `fooResponse` are placeholders standing in for whatever the real request/response shapes turn out to be; nothing here should be read as a documented Admin API endpoint. The one fact this example does encode correctly is the call path: every mutating call goes through `r.client.newRequest`, which already attaches `anthropic-version` and the auth header (see `references/guides/provider-configuration.md`).
+`fooResource`/`fooResourceModel`/`applyFoo` are illustrative placeholders, since no resource exists yet, but `r.client.Organization.Workspaces.New(ctx, anthropic.OrganizationWorkspaceNewParams{...})` is a real, verified call on the official Go SDK's `OrganizationWorkspaceService` (one of several services under `client.Organization`, alongside `APIKeys`, `ExternalKeys`, `Federation`, `Invites`, `ServiceAccounts`, `Users`, `RateLimits`, and `ComplianceSettings`; beta-only features like RBAC and spend limits live under `client.Beta.Organization` instead). Whichever resource lands first should call the real SDK service and method for its own area rather than reusing `Workspaces` by default. Always pass the CRUD method's own `ctx`, never a stored one.
 
 ### Partial Create
 
@@ -156,13 +150,18 @@ A `findFoo` helper that collapses "gone" into a single `nil, nil` result (the wa
 
 ## Not-Found Detection
 
-The Admin API reports an error as an HTTP status code with a JSON body shaped:
+SDK calls return a plain `error`. An API failure unwraps with `errors.As` into `*anthropic.Error` (an alias for the SDK's internal `apierror.Error`):
 
-```json
-{"type":"error","error":{"type":"not_found_error","message":"..."}}
+```go
+var apiErr *anthropic.Error
+if errors.As(err, &apiErr) {
+    // apiErr.StatusCode is an int (e.g. 404)
+    // apiErr.Type() returns a shared.ErrorType, e.g. shared.ErrorTypeNotFoundError,
+    // parsed from the response body's {"error":{"type":"..."}} envelope
+}
 ```
 
-No helper for reading this shape exists yet. The actual detection rule, whether it's the HTTP status code alone, the body's `error.type` field, or both, is a decision to make once there's a real not-found response to test against, not something to guess at in this guide. Whatever shape it takes, follow the pattern sibling providers use: unwrap with `errors.As` into a typed error rather than comparing `err.Error()` strings, since a wrapped error fails a direct type assertion.
+No helper for reading this shape exists yet in this provider. The actual detection rule, whether it's `StatusCode` alone, `.Type()`, or both, is a decision to make once there's a real not-found response to test against, not something to guess at in this guide. `.Type()` is a method, not a field, since the SDK parses it out of the JSON error envelope on unmarshal.
 
 ## Update
 
@@ -183,7 +182,7 @@ func (r *fooResource) Update(ctx context.Context, req resource.UpdateRequest, re
     }
 
     if plan.Name.ValueString() != state.Name.ValueString() {
-        if _, err := r.client.newRequest(ctx, http.MethodPatch, "/v1/organizations/foos/"+state.Id.ValueString(), fooUpdateBody{
+        if _, err := r.client.Organization.Workspaces.Update(ctx, state.Id.ValueString(), anthropic.OrganizationWorkspaceUpdateParams{
             Name: plan.Name.ValueString(),
         }); err != nil {
             resp.Diagnostics.AddError("API Error", fmt.Sprintf("Unable to update foo: %s", err))
@@ -225,7 +224,7 @@ func (r *fooResource) Delete(ctx context.Context, req resource.DeleteRequest, re
         return
     }
 
-    if _, err := r.client.newRequest(ctx, http.MethodDelete, "/v1/organizations/foos/"+state.Id.ValueString(), nil); err != nil {
+    if _, err := r.client.Organization.Workspaces.Archive(ctx, state.Id.ValueString()); err != nil {
         if isNotFound(err) {
             return
         }
@@ -235,7 +234,7 @@ func (r *fooResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 }
 ```
 
-Whether a given Admin API resource actually supports a hard delete, or only something softer (for example disabling a workspace member rather than removing them), is undecided until that resource's real behavior is documented. Don't assume every resource's Delete looks like the example above.
+`Workspaces.Archive` is real, but "archive" is the Workspaces service's own name for its terminal operation, not a generic Delete shape every resource shares. Whether a given Admin API resource actually supports a hard delete, archive, or only something softer (for example disabling a workspace member rather than removing them), is undecided until that resource's real behavior is documented. Don't assume every resource's Delete looks like the example above, and check that resource's own SDK service for the method name it actually exposes (`Archive`, `Delete`, `Revoke`, etc. are all seen across different service files in the SDK).
 
 ## Related Framework References
 

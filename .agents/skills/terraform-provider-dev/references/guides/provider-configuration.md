@@ -29,96 +29,93 @@ func (p *anthropicProvider) Metadata(_ context.Context, _ provider.MetadataReque
 
 ### Schema
 
-Three attributes: `admin_api_key`, `auth_token`, and `base_url`. `admin_api_key` and `auth_token` are both Optional and Sensitive; exactly one of them must resolve to a value:
+Three attributes: `api_key`, `auth_token`, and `base_url`. `api_key` and `auth_token` are both Optional and Sensitive:
 
 ```go
-"admin_api_key": schema.StringAttribute{
+"api_key": schema.StringAttribute{
     Optional:            true,
     Sensitive:           true,
-    MarkdownDescription: "The Anthropic Admin API key, sent as `x-api-key`. Exactly one of `admin_api_key` or `auth_token` must be set.",
+    MarkdownDescription: "An Admin API key, e.g. `sk-ant-admin...`. Conflicts with `auth_token`.",
 },
 "auth_token": schema.StringAttribute{
     Optional:            true,
     Sensitive:           true,
-    MarkdownDescription: "An `org:admin` OAuth or workload-identity-federation token, sent as `Authorization: Bearer`. Exactly one of `admin_api_key` or `auth_token` must be set.",
+    MarkdownDescription: "An OAuth bearer token with the `org:admin` scope. Conflicts with `api_key`.",
 },
 "base_url": schema.StringAttribute{
     Optional:            true,
-    MarkdownDescription: "The Admin API base URL. Defaults to `https://api.anthropic.com`.",
+    MarkdownDescription: "The Anthropic API base URL. Falls back to `ANTHROPIC_BASE_URL`, then `https://api.anthropic.com`.",
 },
 ```
 
-The provider-level `MarkdownDescription` is the place to document that these two credential attributes are mutually exclusive, since neither attribute's own schema can express "exactly one of" by itself (see `schemavalidator.ExactlyOneOf` in `references/guides/validation.md` for a declarative alternative to an error raised in `Configure`).
+Setting both `api_key` and `auth_token` is an error; `schema.MarkdownDescription` on the whole provider schema documents the full resolution order (see Configure below), since it spans more than a single attribute.
 
 ### Provider Model
 
 ```go
 type anthropicProviderModel struct {
-    AdminApiKey types.String `tfsdk:"admin_api_key"`
-    AuthToken   types.String `tfsdk:"auth_token"`
-    BaseUrl     types.String `tfsdk:"base_url"`
+    APIKey    types.String `tfsdk:"api_key"`
+    AuthToken types.String `tfsdk:"auth_token"`
+    BaseURL   types.String `tfsdk:"base_url"`
 }
 ```
 
 ### Configure
 
 ```go
-adminApiKey := data.AdminApiKey.ValueString()
-if adminApiKey == "" {
-    adminApiKey = os.Getenv("ANTHROPIC_ADMIN_API_KEY")
-}
-
-authToken := data.AuthToken.ValueString()
-if authToken == "" {
-    authToken = os.Getenv("ANTHROPIC_AUTH_TOKEN")
-}
-
-if adminApiKey != "" && authToken != "" {
-    resp.Diagnostics.AddError("Configuration Error", "admin_api_key and auth_token are mutually exclusive; set only one")
-    return
-}
-if adminApiKey == "" && authToken == "" {
-    resp.Diagnostics.AddError("Configuration Error", "one of admin_api_key or auth_token must be set")
+client, err := newClient(clientConfig{
+    apiKey:    data.APIKey.ValueString(),
+    authToken: data.AuthToken.ValueString(),
+    baseURL:   data.BaseURL.ValueString(),
+})
+if err != nil {
+    resp.Diagnostics.AddError("Configuration Error", err.Error())
     return
 }
 
-baseUrl := data.BaseUrl.ValueString()
-if baseUrl == "" {
-    baseUrl = os.Getenv("ANTHROPIC_BASE_URL")
-}
-if baseUrl == "" {
-    baseUrl = "https://api.anthropic.com"
-}
-
-client := newAPIClient(baseUrl, credentialFrom(adminApiKey, authToken), newRetryableClient())
+resp.DataSourceData = client
+resp.ResourceData = client
 ```
 
-The exact shape of `credentialFrom` (a small sum type carrying either the API key or the bearer token, so `newRequest` can pick the right header) is an implementation detail of `client.go`; nothing above should be read as the literal function signature, only the resolution order: explicit attribute, then environment variable, then (for `base_url` only) a hardcoded default.
+`newClient` (`client.go`) is where the credential resolution actually happens:
 
-A `testAPIClient != nil` branch runs before this and hands the injected client straight to resources and data sources (see `references/guides/testing.md`).
+```go
+func newClient(cfg clientConfig) (*anthropic.Client, error) {
+    opts := []option.RequestOption{option.WithMaxRetries(maxRetries)}
+    switch {
+    case cfg.apiKey != "" && cfg.authToken != "":
+        return nil, errConflictingCredential
+    case cfg.apiKey != "":
+        opts = append(opts, option.WithAPIKey(cfg.apiKey))
+    case cfg.authToken != "":
+        opts = append(opts, option.WithAuthToken(cfg.authToken))
+    }
+    if cfg.baseURL != "" {
+        opts = append(opts, option.WithBaseURL(cfg.baseURL))
+    }
+    client := anthropic.NewClient(opts...)
+    return &client, nil
+}
+```
+
+If neither `api_key` nor `auth_token` is set in configuration, `anthropic.NewClient` falls back to the official Go SDK's own credential chain rather than anything this provider implements: `ANTHROPIC_API_KEY`, then `ANTHROPIC_AUTH_TOKEN`, then the profile named by `ANTHROPIC_PROFILE`, then workload identity federation from `ANTHROPIC_FEDERATION_RULE_ID`/`ANTHROPIC_ORGANIZATION_ID`/`ANTHROPIC_IDENTITY_TOKEN_FILE`, then the active or default profile. There is no provider-level "no credential resolved" error for this case; if nothing in the chain resolves, the SDK's first outgoing request fails and that failure is what practitioners see.
+
+A `testAPIClient != nil` branch in `Configure` runs before any of this and hands the injected client straight to resources and data sources (see `references/guides/testing.md`).
 
 ### Client Structure
 
-```go
-type apiClient struct {
-    baseURL    string
-    credential credential
-    httpClient *http.Client
-}
-```
-
-`credential` carries exactly one of the two provider attributes: `admin_api_key` is sent as the `x-api-key` header, `auth_token` as `Authorization: Bearer`. `newRequest(ctx, method, path, body)` is the single place that sets `anthropic-version: 2023-06-01` and the auth header, so every resource and data source goes through it rather than building `*http.Request` values directly.
+The provider no longer owns its own client type. `newClient` returns `*anthropic.Client`, the official SDK's top-level client, which exposes one field per API area, e.g. `client.Organization` (stable) and `client.Beta.Organization` (beta-only features). `option.WithMaxRetries(5)` is the only retry configuration the provider sets; the SDK retries itself, there is no custom retry logic to maintain.
 
 ### Client Data Flow
 
 ```
-provider "anthropic" { admin_api_key = "..." }
+provider "anthropic" { api_key = "..." }
           |
           v
    Configure()
           |
           v
-   apiClient{ baseURL, credential, httpClient }
+   newClient(clientConfig{...}) -> *anthropic.Client
           |
     (DataSourceData / ResourceData)
           |
@@ -126,7 +123,7 @@ provider "anthropic" { admin_api_key = "..." }
   fooResource.Configure() -> r.client = client
           |
           v
-  r.client.newRequest(ctx, http.MethodPost, "/v1/organizations/...", body)
+  r.client.Organization.Workspaces.Get(ctx, workspaceID)
 ```
 
 ### Resource and Data Source Registration
@@ -148,10 +145,10 @@ func (r *fooResource) Configure(_ context.Context, req resource.ConfigureRequest
     if req.ProviderData == nil {
         return
     }
-    client, ok := req.ProviderData.(*apiClient)
+    client, ok := req.ProviderData.(*anthropic.Client)
     if !ok {
         resp.Diagnostics.AddError("Unexpected Resource Configure Type",
-            fmt.Sprintf("Expected *apiClient, got: %T", req.ProviderData))
+            fmt.Sprintf("Expected *anthropic.Client, got: %T", req.ProviderData))
         return
     }
     r.client = client
@@ -160,15 +157,17 @@ func (r *fooResource) Configure(_ context.Context, req resource.ConfigureRequest
 
 `req.ProviderData == nil` happens during the provider's own schema/metadata validation passes, before `Configure` has run; returning early (rather than erroring) is correct here, since those passes don't call Create/Read/Update/Delete.
 
-Unlike a provider where different resources need different credentials, every future resource here talks to the same Admin API through the same `*apiClient`, so there is no per-resource credential check to add in `Configure` beyond the type assertion above.
+Unlike a provider where different resources need different credentials, every future resource here talks to the same Admin API through the same `*anthropic.Client`, so there is no per-resource credential check to add in `Configure` beyond the type assertion above.
 
-## Environment Variable Fallbacks
+## Credential and Environment Variable Resolution
 
-| Config Attribute | Environment Variable      | Attribute Type             |
-| ------------------ | --------------------------- | --------------------------- |
-| `admin_api_key`   | `ANTHROPIC_ADMIN_API_KEY` | Sensitive string, Optional |
-| `auth_token`      | `ANTHROPIC_AUTH_TOKEN`    | Sensitive string, Optional |
-| `base_url`        | `ANTHROPIC_BASE_URL`      | String, Optional (defaults to `https://api.anthropic.com`) |
+| Config Attribute | Resolved By                 | Notes             |
+| ------------------ | ---------------------------- | --------------------------- |
+| `api_key`         | `newClient`, then the SDK's own chain | Sensitive string, Optional. An Admin API key, `sk-ant-admin...` |
+| `auth_token`      | `newClient`, then the SDK's own chain | Sensitive string, Optional. Conflicts with `api_key` (`errConflictingCredential`) |
+| `base_url`        | `newClient`, then the SDK's own default | String, Optional |
+
+When neither credential attribute is set, the SDK (not this provider) resolves, in order: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_PROFILE`, the workload identity federation env vars (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN_FILE`), then the active or default profile. There is no separate, provider-specific admin-key environment variable, and no up-front "missing credential" error; an unresolved credential fails on the first request the SDK makes.
 
 ## Provider Server (main.go)
 

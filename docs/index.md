@@ -5,18 +5,14 @@ description: |-
   Manage an Anthropic organization with Terraform through the Admin API.
   This provider is not affiliated with or endorsed by Anthropic.
   Authentication
-  The provider takes exactly one credential.
-  auth_token is an OAuth bearer token with the org:admin scope, or a
-  short-lived token minted through Workload Identity Federation. Prefer it in CI,
-  because it never needs a long-lived secret.
-  admin_api_key is an Admin API key (sk-ant-admin...). Only organization
-  members with the admin role can create one.
-  Environment variables
-  | Attribute       | Environment variable      |
-  | --------------- | ------------------------- |
-  | `admin_api_key` | `ANTHROPIC_ADMIN_API_KEY` |
-  | `auth_token`    | `ANTHROPIC_AUTH_TOKEN`    |
-  | `base_url`      | `ANTHROPIC_BASE_URL`      |
+  The provider authenticates through the official Anthropic Go SDK, so it accepts
+  the same credentials as the SDK and the ant CLI. Setting api_key or
+  auth_token overrides everything else. Otherwise the SDK resolves, in order:
+  ANTHROPIC_API_KEY, for an Admin API key (sk-ant-admin...)ANTHROPIC_AUTH_TOKEN, for an OAuth token with the org:admin scopeThe profile named by ANTHROPIC_PROFILEWorkload Identity Federation from ANTHROPIC_FEDERATION_RULE_ID,
+  ANTHROPIC_ORGANIZATION_ID and ANTHROPIC_IDENTITY_TOKEN_FILEThe active or default profile
+  Prefer Workload Identity Federation in CI, so the pipeline never holds a
+  long-lived admin secret. Service account and federation endpoints accept only
+  an OAuth or federation token, never an Admin API key.
 ---
 
 # anthropic Provider
@@ -27,22 +23,20 @@ This provider is not affiliated with or endorsed by Anthropic.
 
 ## Authentication
 
-The provider takes exactly one credential.
+The provider authenticates through the official Anthropic Go SDK, so it accepts
+the same credentials as the SDK and the `ant` CLI. Setting `api_key` or
+`auth_token` overrides everything else. Otherwise the SDK resolves, in order:
 
-`auth_token` is an OAuth bearer token with the `org:admin` scope, or a
-short-lived token minted through Workload Identity Federation. Prefer it in CI,
-because it never needs a long-lived secret.
+1. `ANTHROPIC_API_KEY`, for an Admin API key (`sk-ant-admin...`)
+2. `ANTHROPIC_AUTH_TOKEN`, for an OAuth token with the `org:admin` scope
+3. The profile named by `ANTHROPIC_PROFILE`
+4. Workload Identity Federation from `ANTHROPIC_FEDERATION_RULE_ID`,
+   `ANTHROPIC_ORGANIZATION_ID` and `ANTHROPIC_IDENTITY_TOKEN_FILE`
+5. The active or `default` profile
 
-`admin_api_key` is an Admin API key (`sk-ant-admin...`). Only organization
-members with the admin role can create one.
-
-## Environment variables
-
-| Attribute       | Environment variable      |
-| --------------- | ------------------------- |
-| `admin_api_key` | `ANTHROPIC_ADMIN_API_KEY` |
-| `auth_token`    | `ANTHROPIC_AUTH_TOKEN`    |
-| `base_url`      | `ANTHROPIC_BASE_URL`      |
+Prefer Workload Identity Federation in CI, so the pipeline never holds a
+long-lived admin secret. Service account and federation endpoints accept only
+an OAuth or federation token, never an Admin API key.
 
 ## Example Usage
 
@@ -70,6 +64,6 @@ variable "anthropic_auth_token" {
 
 ### Optional
 
-- `admin_api_key` (String, Sensitive) An Admin API key, e.g. `sk-ant-admin...`. Conflicts with `auth_token`.
-- `auth_token` (String, Sensitive) An OAuth bearer token with the `org:admin` scope. Conflicts with `admin_api_key`.
-- `base_url` (String) The Anthropic API base URL. Defaults to `https://api.anthropic.com`.
+- `api_key` (String, Sensitive) An Admin API key, e.g. `sk-ant-admin...`. Conflicts with `auth_token`.
+- `auth_token` (String, Sensitive) An OAuth bearer token with the `org:admin` scope. Conflicts with `api_key`.
+- `base_url` (String) The Anthropic API base URL. Falls back to `ANTHROPIC_BASE_URL`, then `https://api.anthropic.com`.

@@ -19,10 +19,10 @@ mise run docs    # regenerate docs/ from schema descriptions
 
 ## Testing
 
-Tests never reach the Anthropic API. Resource tests inject an `*apiClient` pointed at an `httptest.Server` through the package-level `testAPIClient`, which bypasses provider configuration entirely.
+Tests never reach the Anthropic API. Resource tests inject an `*anthropic.Client` built with `newClient` and pointed at an `httptest.Server` through the package-level `testAPIClient`, which bypasses provider configuration entirely.
 
 ```bash
-mise exec -- go test ./internal/provider/ -v -run TestResolveCredential
+mise exec -- go test ./internal/provider/ -v -run TestNewClient
 ```
 
 ## Code layout

@@ -2,8 +2,8 @@ package provider
 
 import (
 	"context"
-	"os"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -14,16 +14,16 @@ import (
 var _ provider.Provider = &anthropicProvider{}
 
 // testAPIClient is set by tests to bypass authentication and inject a mock client.
-var testAPIClient *apiClient
+var testAPIClient *anthropic.Client
 
 type anthropicProvider struct {
 	version string
 }
 
 type anthropicProviderModel struct {
-	AdminAPIKey types.String `tfsdk:"admin_api_key"`
-	AuthToken   types.String `tfsdk:"auth_token"`
-	BaseURL     types.String `tfsdk:"base_url"`
+	APIKey    types.String `tfsdk:"api_key"`
+	AuthToken types.String `tfsdk:"auth_token"`
+	BaseURL   types.String `tfsdk:"base_url"`
 }
 
 func (p *anthropicProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -39,24 +39,22 @@ This provider is not affiliated with or endorsed by Anthropic.
 
 ## Authentication
 
-The provider takes exactly one credential.
+The provider authenticates through the official Anthropic Go SDK, so it accepts
+the same credentials as the SDK and the ` + "`ant`" + ` CLI. Setting ` + "`api_key`" + ` or
+` + "`auth_token`" + ` overrides everything else. Otherwise the SDK resolves, in order:
 
-` + "`auth_token`" + ` is an OAuth bearer token with the ` + "`org:admin`" + ` scope, or a
-short-lived token minted through Workload Identity Federation. Prefer it in CI,
-because it never needs a long-lived secret.
+1. ` + "`ANTHROPIC_API_KEY`" + `, for an Admin API key (` + "`sk-ant-admin...`" + `)
+2. ` + "`ANTHROPIC_AUTH_TOKEN`" + `, for an OAuth token with the ` + "`org:admin`" + ` scope
+3. The profile named by ` + "`ANTHROPIC_PROFILE`" + `
+4. Workload Identity Federation from ` + "`ANTHROPIC_FEDERATION_RULE_ID`" + `,
+   ` + "`ANTHROPIC_ORGANIZATION_ID`" + ` and ` + "`ANTHROPIC_IDENTITY_TOKEN_FILE`" + `
+5. The active or ` + "`default`" + ` profile
 
-` + "`admin_api_key`" + ` is an Admin API key (` + "`sk-ant-admin...`" + `). Only organization
-members with the admin role can create one.
-
-## Environment variables
-
-| Attribute       | Environment variable      |
-| --------------- | ------------------------- |
-| ` + "`admin_api_key`" + ` | ` + "`ANTHROPIC_ADMIN_API_KEY`" + ` |
-| ` + "`auth_token`" + `    | ` + "`ANTHROPIC_AUTH_TOKEN`" + `    |
-| ` + "`base_url`" + `      | ` + "`ANTHROPIC_BASE_URL`" + `      |`,
+Prefer Workload Identity Federation in CI, so the pipeline never holds a
+long-lived admin secret. Service account and federation endpoints accept only
+an OAuth or federation token, never an Admin API key.`,
 		Attributes: map[string]schema.Attribute{
-			"admin_api_key": schema.StringAttribute{
+			"api_key": schema.StringAttribute{
 				Optional:            true,
 				Sensitive:           true,
 				MarkdownDescription: "An Admin API key, e.g. `sk-ant-admin...`. Conflicts with `auth_token`.",
@@ -64,11 +62,11 @@ members with the admin role can create one.
 			"auth_token": schema.StringAttribute{
 				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "An OAuth bearer token with the `org:admin` scope. Conflicts with `admin_api_key`.",
+				MarkdownDescription: "An OAuth bearer token with the `org:admin` scope. Conflicts with `api_key`.",
 			},
 			"base_url": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "The Anthropic API base URL. Defaults to `" + defaultBaseURL + "`.",
+				MarkdownDescription: "The Anthropic API base URL. Falls back to `ANTHROPIC_BASE_URL`, then `https://api.anthropic.com`.",
 			},
 		},
 	}
@@ -88,21 +86,16 @@ func (p *anthropicProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	apiKey := valueOrEnv(data.AdminAPIKey, "ANTHROPIC_ADMIN_API_KEY")
-	token := valueOrEnv(data.AuthToken, "ANTHROPIC_AUTH_TOKEN")
-
-	cred, err := resolveCredential(apiKey, token)
+	client, err := newClient(clientConfig{
+		apiKey:    data.APIKey.ValueString(),
+		authToken: data.AuthToken.ValueString(),
+		baseURL:   data.BaseURL.ValueString(),
+	})
 	if err != nil {
 		resp.Diagnostics.AddError("Configuration Error", err.Error())
 		return
 	}
 
-	baseURL := valueOrEnv(data.BaseURL, "ANTHROPIC_BASE_URL")
-	if baseURL == "" {
-		baseURL = defaultBaseURL
-	}
-
-	client := newAPIClient(newRetryableClient(), baseURL, cred)
 	resp.DataSourceData = client
 	resp.ResourceData = client
 }
@@ -113,13 +106,6 @@ func (p *anthropicProvider) Resources(ctx context.Context) []func() resource.Res
 
 func (p *anthropicProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{}
-}
-
-func valueOrEnv(value types.String, env string) string {
-	if v := value.ValueString(); v != "" {
-		return v
-	}
-	return os.Getenv(env)
 }
 
 func New(version string) func() provider.Provider {

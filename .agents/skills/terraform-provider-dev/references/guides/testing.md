@@ -27,9 +27,11 @@ func (f *fakeAdminAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Whether this ends up as one handler covering every endpoint, or several smaller fakes, is undecided until there's a real resource to drive it. Error responses from the fake should match the real shape documented in `client.go`: an HTTP status code with a body like `{"type":"error","error":{"type":"not_found_error","message":"..."}}`. Unlike a fake built around quirk-simulating boolean flags, prefer deriving error conditions from the actual state of the fake's in-memory data, the same way the real Admin API's errors come from the actual state of an organization.
+Whether this ends up as one handler covering every endpoint, or several smaller fakes, is undecided until there's a real resource to drive it. Error responses from the fake should match the real shape the official Go SDK parses: an HTTP status code with a body like `{"type":"error","error":{"type":"not_found_error","message":"..."}}`. Unlike a fake built around quirk-simulating boolean flags, prefer deriving error conditions from the actual state of the fake's in-memory data, the same way the real Admin API's errors come from the actual state of an organization.
 
 ### Provider Test Harness
+
+This is the real, verified pattern from `provider_test.go`:
 
 ```go
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
@@ -38,10 +40,14 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 
 const testProviderConfig = `
 provider "anthropic" {
-  admin_api_key = "test-admin-key"
+  api_key = "sk-ant-admin-test"
 }
 `
+```
 
+`testAPIClient` (declared in `provider.go` as `var testAPIClient *anthropic.Client`) is a package-level variable that `anthropicProvider.Configure` checks first, before falling back to `newClient` and the configured attributes (see `references/guides/provider-configuration.md`). Setting it is how acceptance tests run the full provider lifecycle (Create/Read/Update/Delete through real Terraform plans) against a fake server instead of the real Admin API, with no HTTP traffic leaving the test process. The rest of this guide uses two small test helpers, not yet written anywhere in the provider, that wrap the real pattern above for reuse across test functions:
+
+```go
 func setupTestServer(t *testing.T, handler http.Handler) *httptest.Server {
     t.Helper()
     server := httptest.NewServer(handler)
@@ -51,12 +57,16 @@ func setupTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 
 func setupTestClient(t *testing.T, server *httptest.Server) {
     t.Helper()
-    testAPIClient = newAPIClient(server.URL, adminAPIKeyCredential("test-admin-key"), server.Client())
+    client, err := newClient(clientConfig{apiKey: "sk-ant-admin-test", baseURL: server.URL})
+    if err != nil {
+        t.Fatal(err)
+    }
+    testAPIClient = client
     t.Cleanup(func() { testAPIClient = nil })
 }
 ```
 
-`testAPIClient` is a package-level variable that `anthropicProvider.Configure` is expected to check first, before falling back to the configured credential and `ANTHROPIC_BASE_URL` (see `references/guides/provider-configuration.md`). Setting it in `setupTestClient` is how acceptance tests will run the full provider lifecycle (Create/Read/Update/Delete through real Terraform plans) against the fake instead of the real Admin API, with no HTTP traffic leaving the test process. `newAPIClient` and `adminAPIKeyCredential` above are placeholders for whatever `client.go` actually exposes; nothing here should be read as its literal signature.
+`provider_test.go` also isolates credential-resolution tests from the real environment with `t.Setenv("ANTHROPIC_API_KEY", "")` and `t.Setenv("ANTHROPIC_AUTH_TOKEN", "")`, so a developer's own exported credentials never leak into a test run.
 
 ## Basic Test Structure
 
@@ -251,8 +261,8 @@ func TestIsNotFound(t *testing.T) {
         err  error
         want bool
     }{
-        {"not found", &apiError{Type: "not_found_error"}, true},
-        {"other error", &apiError{Type: "invalid_request_error"}, false},
+        {"not found", &anthropic.Error{StatusCode: http.StatusNotFound}, true},
+        {"conflict", &anthropic.Error{StatusCode: http.StatusConflict}, false},
         {"nil error", nil, false},
     }
     for _, tt := range tests {
@@ -265,23 +275,11 @@ func TestIsNotFound(t *testing.T) {
 }
 ```
 
-`apiError` and `isNotFound` are placeholders; the real not-found detection logic (status code, body `error.type`, or both) is undecided (see `references/guides/resource-lifecycle.md`).
+`anthropic.Error` is real (an alias for the SDK's internal `apierror.Error`, with a `StatusCode int` field); `isNotFound` is a placeholder for whatever helper eventually wraps `errors.As(err, &apiErr)` plus a check on `StatusCode` and/or `apiErr.Type()`. The real not-found detection logic is undecided (see `references/guides/resource-lifecycle.md`).
 
-## Testing the Retry Policy Directly
+## Retries
 
-`retry.go` already exists and retries 429 and 5xx except 501. `retry_test.go` tests `retryPolicy` as a plain function, with constructed `*http.Response` values and no server or fake needed at all:
-
-```go
-func TestRetryPolicy_429_Retries(t *testing.T) {
-    resp := &http.Response{StatusCode: http.StatusTooManyRequests}
-    retry, err := retryPolicy(context.Background(), resp, nil)
-    if !retry || err != nil {
-        t.Errorf("expected retry=true, err=nil; got retry=%v, err=%v", retry, err)
-    }
-}
-```
-
-The exact test names already in `retry_test.go` aren't restated here; see that file directly rather than this guide for its current coverage.
+This provider carries no custom retry implementation and no dedicated test file for one. The official Go SDK retries its own requests; the provider only sets `option.WithMaxRetries(5)` in `newClient` (`client.go`). There is nothing provider-specific to unit test here: retry behavior on 429s and 5xxs is the SDK's responsibility, not this codebase's.
 
 ## Live Acceptance Tests
 
@@ -293,9 +291,9 @@ func requireLiveCredentials(t *testing.T) string {
     if os.Getenv("TF_ACC") == "" {
         t.Skip("set TF_ACC=1 to run live acceptance tests")
     }
-    key := os.Getenv("ANTHROPIC_ADMIN_API_KEY")
+    key := os.Getenv("ANTHROPIC_API_KEY")
     if key == "" {
-        t.Skip("set ANTHROPIC_ADMIN_API_KEY to run live acceptance tests")
+        t.Skip("set ANTHROPIC_API_KEY to run live acceptance tests")
     }
     return key
 }
@@ -317,7 +315,7 @@ resource "anthropic_foo" "live" {
 }
 ```
 
-No `live_test.go` exists yet. This suite is not expected to run in ordinary CI; it would require a human to export `TF_ACC=1` and a valid `ANTHROPIC_ADMIN_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`) for a real, ideally disposable, organization.
+No `live_test.go` exists yet. This suite is not expected to run in ordinary CI; it would require a human to export `TF_ACC=1` and a valid credential, either via `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` or one of the SDK's other credential-chain mechanisms, for a real, ideally disposable, organization.
 
 ## Check Functions Reference
 
@@ -336,16 +334,16 @@ No `live_test.go` exists yet. This suite is not expected to run in ordinary CI; 
 ```bash
 go test ./internal/provider/...               # Fake-backed tests only
 TF_ACC=1 go test ./internal/provider/... -run TestAcc  # Fake-backed acceptance tests, verbose plan/apply cycle
-TF_ACC=1 ANTHROPIC_ADMIN_API_KEY=... go test ./internal/provider/... -run TestLive  # Live tests against the real Admin API
+TF_ACC=1 ANTHROPIC_API_KEY=... go test ./internal/provider/... -run TestLive  # Live tests against the real Admin API
 ```
 
-`TestAcc*` and `TestLive*` both use `resource.Test`, which requires `TF_ACC=1` to actually run (otherwise it skips with a message); `TestLive*` additionally requires a real credential via `requireLiveCredentials`. Plain unit tests (table tests, retry policy tests) run unconditionally with plain `go test`.
+`TestAcc*` and `TestLive*` both use `resource.Test`, which requires `TF_ACC=1` to actually run (otherwise it skips with a message); `TestLive*` additionally requires a real credential via `requireLiveCredentials`. Plain unit tests (table tests, error-classification tests) run unconditionally with plain `go test`.
 
 ## Test Naming Convention
 
 - `TestAcc<Resource>_<Scenario>`: acceptance tests against the fake (e.g. `TestAccFoo_Basic`, `TestAccFoo_Immutable`, `TestAccFoo_UnmanagedFieldIsKept`, `TestAccFoo_DeletedExternally`)
 - `TestLive_<Resource>`: live acceptance tests against the real Admin API (e.g. `TestLive_Foo`)
-- `Test<Thing>_<Condition>`: plain unit tests (e.g. `TestRetryPolicy_429_Retries`, `TestIsNotFound`)
+- `Test<Thing>_<Condition>`: plain unit tests (e.g. `TestIsNotFound`, and the real `TestNewClientRejectsBothCredentials`/`TestNewClientSendsTheConfiguredCredential` in `provider_test.go`)
 
 No resource exists yet, so none of the names above are real test functions; they illustrate the convention to follow.
 

@@ -2,6 +2,8 @@ package provider
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -26,27 +28,50 @@ func TestProviderServes(t *testing.T) {
 	}
 }
 
-func TestResolveCredential(t *testing.T) {
+func TestNewClientRejectsBothCredentials(t *testing.T) {
+	_, err := newClient(clientConfig{apiKey: "sk-ant-admin-test", authToken: "token-test"})
+	if !errors.Is(err, errConflictingCredential) {
+		t.Fatalf("err = %v, want %v", err, errConflictingCredential)
+	}
+}
+
+func TestNewClientSendsTheConfiguredCredential(t *testing.T) {
 	cases := []struct {
-		name    string
-		apiKey  string
-		token   string
-		want    credential
-		wantErr error
+		name   string
+		cfg    clientConfig
+		header string
+		want   string
 	}{
-		{name: "admin API key", apiKey: "sk-ant-admin-test", want: adminAPIKey("sk-ant-admin-test")},
-		{name: "auth token", token: "token-test", want: authToken("token-test")},
-		{name: "neither", wantErr: errNoCredential},
-		{name: "both", apiKey: "sk-ant-admin-test", token: "token-test", wantErr: errConflictingCredential},
+		{"api key", clientConfig{apiKey: "sk-ant-admin-test"}, "X-Api-Key", "sk-ant-admin-test"},
+		{"auth token", clientConfig{authToken: "token-test"}, "Authorization", "Bearer token-test"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveCredential(tc.apiKey, tc.token)
-			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			t.Setenv("ANTHROPIC_API_KEY", "")
+			t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+			var got http.Header
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"org_test","name":"Test","type":"organization"}`))
+			}))
+			t.Cleanup(server.Close)
+
+			tc.cfg.baseURL = server.URL
+			client, err := newClient(tc.cfg)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if got != tc.want {
-				t.Errorf("credential = %#v, want %#v", got, tc.want)
+			if _, err := client.Organization.Get(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+
+			if v := got.Get(tc.header); v != tc.want {
+				t.Errorf("%s = %q, want %q", tc.header, v, tc.want)
+			}
+			if got.Get("Anthropic-Version") == "" {
+				t.Error("anthropic-version header is missing")
 			}
 		})
 	}

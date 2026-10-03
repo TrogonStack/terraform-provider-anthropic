@@ -1,6 +1,6 @@
 # Data Source Lifecycle
 
-The provider does not define any data sources today (`DataSources()` in `provider.go` returns an empty slice), and it does not define any resources yet either. Everything below is illustrative: the pattern to follow when a data source is added, built from the generic Plugin Framework contract and the known `*apiClient` shape.
+The provider does not define any data sources today (`DataSources()` in `provider.go` returns an empty slice), and it does not define any resources yet either. Everything below is illustrative: the pattern to follow when a data source is added, built from the generic Plugin Framework contract and the known `*anthropic.Client` shape (the official Go SDK's client, see `references/guides/provider-configuration.md`).
 
 ## Interface
 
@@ -73,10 +73,10 @@ func (d *fooDataSource) Configure(_ context.Context, req datasource.ConfigureReq
     if req.ProviderData == nil {
         return
     }
-    client, ok := req.ProviderData.(*apiClient)
+    client, ok := req.ProviderData.(*anthropic.Client)
     if !ok {
         resp.Diagnostics.AddError("Unexpected DataSource Configure Type",
-            fmt.Sprintf("Expected *apiClient, got: %T", req.ProviderData))
+            fmt.Sprintf("Expected *anthropic.Client, got: %T", req.ProviderData))
         return
     }
     d.client = client
@@ -110,12 +110,12 @@ func (d *fooDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
         return
     }
 
-    data.Id = types.StringValue(found.Id)
+    data.Id = types.StringValue(found.ID)
     resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 ```
 
-`findFooByName` is a placeholder for whatever lookup the Admin API actually supports (a filtered list call, a dedicated get-by-id endpoint, or something else); the Admin API endpoints this provider will eventually call aren't documented in this skill, so don't read the helper name or its signature as a real one.
+`findFooByName` is a placeholder wrapping whatever real SDK lookup a future data source needs. Not every area has a filter-by-name list call; for example `client.Organization.Workspaces.List(ctx, anthropic.OrganizationWorkspaceListParams{}, ...)` returns a `*pagination.Page[Workspace]` (also available pre-paginated via `ListAutoPaging`), with no name filter in its params, so a name-keyed data source over workspaces would need to list and filter client-side, or look up by ID instead via `client.Organization.Workspaces.Get(ctx, workspaceID)`. Don't assume a dedicated by-name lookup exists until the relevant SDK service's actual `Params` struct is checked.
 
 ## Data Sources vs Resources
 

@@ -117,7 +117,7 @@ schema.StringAttribute{
 }
 ```
 
-The provider's own `admin_api_key` and `auth_token` attributes (in `provider.go`) are `Sensitive: true`. Whether any resource attribute needs the same treatment (for example a freshly created API key's secret value, which the Admin API likely returns only once) is a per-resource decision.
+The provider's own `api_key` and `auth_token` attributes (in `provider.go`) are `Sensitive: true`. Whether any resource attribute needs the same treatment (for example a freshly created API key's secret value, which the Admin API likely returns only once) is a per-resource decision.
 
 ### Deprecation
 

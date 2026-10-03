@@ -74,7 +74,7 @@ schemavalidator.ExactlyOneOf(path.MatchRoot("field_a"), path.MatchRoot("field_b"
 schemavalidator.RequiredTogether(path.MatchRoot("field_a"), path.MatchRoot("field_b"))
 ```
 
-Not used anywhere in a resource schema yet. The provider schema itself has exactly this kind of constraint: `admin_api_key` and `auth_token` are mutually exclusive, and exactly one must be set. Today that's checked imperatively in `Configure` (see `references/guides/provider-configuration.md`); `schemavalidator.ExactlyOneOf(path.MatchRoot("admin_api_key"), path.MatchRoot("auth_token"))` is a declarative alternative worth considering if the provider schema is revisited, though it would need to account for the environment-variable fallback, which a schema-level validator cannot see.
+Not used anywhere in a resource schema yet. The provider schema itself has a related constraint: `api_key` and `auth_token` are mutually exclusive (`errConflictingCredential`), but neither is Required, since both can be left unset and resolved instead through the official Go SDK's own credential chain (environment variables, profiles, workload identity federation; see `references/guides/provider-configuration.md`). That asymmetry, conflict without a corresponding "at least one of", is checked imperatively in `newClient` today; `schemavalidator.ConflictsWith(path.MatchRoot("api_key"), path.MatchRoot("auth_token"))` is a declarative alternative worth considering if the provider schema is revisited, though `schemavalidator.ExactlyOneOf` would be wrong here, since it would reject the valid case where both are unset and the SDK's chain applies instead.
 
 ## Custom Validators
 

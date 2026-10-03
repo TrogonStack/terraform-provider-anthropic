@@ -27,20 +27,20 @@ description: >
 
 ## This Provider: Conventions
 
-No resource or data source exists yet. The provider surface will eventually cover the Anthropic Admin API's workspaces, workspace members, users, invites, API keys, service accounts, and federation issuers/rules, but no schema or CRUD behavior for any of them is decided. What's already in place, in `internal/provider/`:
+No resource or data source exists yet. The provider surface will eventually cover the Anthropic Admin API's organization, workspaces, workspace members, users, invites, API keys, service accounts, and federation issuers/rules, but no schema or CRUD behavior for any of them is decided. What's already in place, in `internal/provider/`:
 
 - **Package**: `internal/provider` (single flat package; every resource and data source will live here)
 - **File naming**: `resource_<name>.go`, `resource_<name>_test.go`, `data_source_<name>.go`
 - **Provider**: `anthropicProvider`. `Metadata` sets `resp.TypeName = "anthropic"`, so every resource type name is `anthropic_<name>`
-- **Provider schema**: two Optional, Sensitive attributes, `admin_api_key` (env `ANTHROPIC_ADMIN_API_KEY`, sent as the `x-api-key` header) and `auth_token` (env `ANTHROPIC_AUTH_TOKEN`, an `org:admin` OAuth or workload-identity-federation token sent as `Authorization: Bearer`). Exactly one must resolve to a value; Configure errors if both are set and errors if neither is. `base_url` (env `ANTHROPIC_BASE_URL`) defaults to `https://api.anthropic.com`
-- **Provider client**: `*apiClient` (`client.go`) holds the base URL and whichever credential resolved, on top of the retrying HTTP client from `retry.go`. `newRequest(ctx, method, path, body)` sets `anthropic-version: 2023-06-01` and the auth header on every call
-- **Client injection**: each resource and data source's `Configure` method casts `req.ProviderData.(*apiClient)`
+- **Provider schema**: two Optional, Sensitive attributes, `api_key` (an Admin API key, `sk-ant-admin...`) and `auth_token` (an OAuth or workload-identity-federation token with the `org:admin` scope). Setting both is `errConflictingCredential`. If neither is set, the official Go SDK's own credential chain applies, in order: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_PROFILE`, workload identity federation env vars (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN_FILE`), then the active or default profile. There is no provider-level "no credential" error; an unresolved credential surfaces as a failure on the first API call. `base_url` is Optional and falls back to the SDK's own default
+- **Provider client**: the hand-rolled HTTP client is gone. The provider depends on the official Go SDK, `github.com/anthropics/anthropic-sdk-go` v1.78.0. `client.go`'s `newClient(clientConfig{apiKey, authToken, baseURL string}) (*anthropic.Client, error)` builds an `anthropic.Client` via `anthropic.NewClient(opts...)`, always passing `option.WithMaxRetries(5)`, plus `option.WithAPIKey`/`option.WithAuthToken` when a credential is configured and `option.WithBaseURL` when `base_url` is set. The SDK handles its own retry behavior; this provider carries no custom retry logic of its own
+- **Client injection**: each resource and data source's `Configure` method casts `req.ProviderData.(*anthropic.Client)`
 - **Registration**: `Resources()` and `DataSources()` in `provider.go` both return empty slices today. The first resource adds its constructor to `Resources()`
 - **ID helper**: no `rsId()`-style helper exists yet, but sibling providers in this family define one (a Computed `StringAttribute` with `UseStateForUnknown`, see `references/guides/schema-design.md`); reach for the same shape instead of inventing a new one when the first resource lands
 - **Import**: whether every resource's ID round-trips through a plain `ImportStatePassthroughID`, or whether some need compound parsing (for example a workspace member keyed by `<workspace_id>/<user_id>`), depends on which resource lands first. Both patterns are documented in `references/guides/state-management.md`
-- **Error handling**: the Admin API reports a failure as an HTTP status code with a JSON body shaped `{"type":"error","error":{"type":"not_found_error","message":"..."}}`. No helper for reading this shape exists yet, and whether "not found" is detected from the status code, the body's `error.type`, or both, is a decision for whoever implements the first resource, not something to guess at here
+- **Error handling**: SDK calls return errors; an API failure unwraps with `errors.As` into `*anthropic.Error` (an alias for the SDK's internal `apierror.Error`), which carries `StatusCode int` and a `Type() shared.ErrorType` method parsed from the API's `{"error":{"type":"..."}}` envelope (for example `shared.ErrorTypeNotFoundError`). Whether "not found" is detected from `StatusCode`, `.Type()`, or both, is a decision for whoever implements the first resource, not something to guess at here
 - **Destroy semantics**: undecided; depends on what the Admin API supports per resource (hard delete, archive, revoke) once a resource lands
-- **Testing**: `testAPIClient` is a package var tests set to inject a client pointed at an `httptest.Server` (mirrors the pattern in `client.go`). Whether the fake Admin API is one handler covering every endpoint or several smaller ones is undecided until there's a resource to drive it
+- **Testing**: `testAPIClient` is a package var of type `*anthropic.Client` that tests set to inject a client pointed at an `httptest.Server`, built with `newClient(clientConfig{apiKey: "...", baseURL: server.URL})`. Whether a fake Admin API server is one handler covering every endpoint or several smaller ones is undecided until there's a resource to drive it
 
 ---
 
@@ -59,7 +59,7 @@ var (
 func newFoo() resource.Resource { return &fooResource{} }
 
 type fooResource struct {
-    client *apiClient
+    client *anthropic.Client
 }
 
 type fooResourceModel struct {
@@ -84,9 +84,9 @@ func (r *fooResource) Configure(_ context.Context, req resource.ConfigureRequest
     if req.ProviderData == nil {
         return
     }
-    client, ok := req.ProviderData.(*apiClient)
+    client, ok := req.ProviderData.(*anthropic.Client)
     if !ok {
-        resp.Diagnostics.AddError("Unexpected Resource Configure Type", fmt.Sprintf("Expected *apiClient, got: %T", req.ProviderData))
+        resp.Diagnostics.AddError("Unexpected Resource Configure Type", fmt.Sprintf("Expected *anthropic.Client, got: %T", req.ProviderData))
         return
     }
     r.client = client
@@ -110,7 +110,7 @@ var _ datasource.DataSource = &fooDataSource{}
 func newFooDataSource() datasource.DataSource { return &fooDataSource{} }
 
 type fooDataSource struct {
-    client *apiClient
+    client *anthropic.Client
 }
 
 type fooDataSourceModel struct {
@@ -135,9 +135,9 @@ func (d *fooDataSource) Configure(_ context.Context, req datasource.ConfigureReq
     if req.ProviderData == nil {
         return
     }
-    client, ok := req.ProviderData.(*apiClient)
+    client, ok := req.ProviderData.(*anthropic.Client)
     if !ok {
-        resp.Diagnostics.AddError("Unexpected DataSource Configure Type", fmt.Sprintf("Expected *apiClient, got: %T", req.ProviderData))
+        resp.Diagnostics.AddError("Unexpected DataSource Configure Type", fmt.Sprintf("Expected *anthropic.Client, got: %T", req.ProviderData))
         return
     }
     d.client = client
@@ -192,7 +192,7 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 
 const testProviderConfig = `
 provider "anthropic" {
-  admin_api_key = "test-admin-key"
+  api_key = "sk-ant-admin-test"
 }
 `
 ```
@@ -202,8 +202,10 @@ provider "anthropic" {
 ```go
 func TestAccFoo_Basic(t *testing.T) {
     fake := newFakeAdminAPI() // illustrative: no fake server exists yet
-    server := setupTestServer(t, fake)
-    setupTestClient(t, server)
+    server := httptest.NewServer(fake)
+    t.Cleanup(server.Close)
+    testAPIClient, _ = newClient(clientConfig{apiKey: "sk-ant-admin-test", baseURL: server.URL})
+    t.Cleanup(func() { testAPIClient = nil })
 
     resource.Test(t, resource.TestCase{
         ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
