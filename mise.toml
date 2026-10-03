@@ -1,0 +1,48 @@
+[tools]
+go = "1.26"
+golangci-lint = "2.12"
+goreleaser = "2"
+"go:github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs" = "0.25"
+
+[tasks.build]
+description = "Full CI pipeline"
+depends = ["download", "lint", "test", "tidy", "docs", "diff"]
+
+[tasks.download]
+description = "download Go dependencies"
+run = "go mod download"
+
+[tasks.lint]
+description = "lint Go code"
+run = "golangci-lint run --fix ./..."
+
+[tasks.test]
+description = "run unit tests"
+run = "go test -count=1 -cover -skip TestLive ./..."
+env = { TF_ACC = "1" }
+
+[tasks."test:live"]
+description = "run live acceptance tests against a real Anthropic organization"
+run = "go test ./internal/provider -run TestLive -v -count=1 -timeout 30m"
+env = { TF_ACC = "1" }
+
+[tasks.tidy]
+description = "tidy Go modules"
+run = "go mod tidy -v"
+
+[tasks.diff]
+description = "check for git diffs"
+wait_for = ["download", "lint", "test", "tidy", "docs"]
+run = """
+if git rev-parse --is-inside-work-tree &>/dev/null && ! jj root &>/dev/null; then
+  git diff --exit-code
+fi
+"""
+
+[tasks.docs]
+description = "generate provider documentation for the registry"
+run = "tfplugindocs generate --provider-name anthropic"
+
+[tasks.release]
+description = "build and publish release artifacts for the current tag"
+run = "goreleaser release --clean"
