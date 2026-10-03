@@ -2,7 +2,7 @@
 
 ## Overview
 
-Validation catches configuration errors before apply, giving practitioners fast, actionable feedback instead of a failed API call mid-apply. Terraform Plugin Framework offers several validation layers. No resource exists in this provider yet, so none of these layers are in use today; this guide is the generic reference to reach for once one is.
+Validation catches configuration errors before apply, giving practitioners fast, actionable feedback instead of a failed API call mid-apply. Terraform Plugin Framework offers several validation layers. This provider uses `github.com/hashicorp/terraform-plugin-framework-validators` for attribute validation instead of hand-rolled `validator.*` types.
 
 ## Attribute Validators
 
@@ -22,7 +22,7 @@ schema.SetAttribute{
 }
 ```
 
-Reach for this whenever the Admin API itself rejects an empty collection on a future resource. Whether any resource actually needs it is not known until that resource's real constraints are documented.
+`anthropic_workspace` uses it on `data_residency.allowed_inference_geos`: null means unrestricted, and an empty set could never contain `default_inference_geo`.
 
 ## Common Validators by Type
 
@@ -38,7 +38,9 @@ Reach for this whenever the Admin API itself rejects an empty collection on a fu
 | `RegexMatches(regex, message)`  | Pattern match                |
 | `UTF8LengthAtLeast(n)`          | Minimum UTF-8 length         |
 
-None of these are used anywhere in this provider yet. `OneOf` is a natural fit for a future enum-shaped field (for example a role or permission level on a workspace member), if the Admin API documents a fixed set of values; whether any resource has such a field is unknown until it's designed.
+`anthropic_workspace` uses `LengthAtLeast(1)` on `name` and `RegexMatches` on `display_color` and on tag keys. It deliberately skips `OneOf` on the geo attributes: the SDK's enums are open strings, and the API can add a geo without a breaking change, so a closed list would block it until a provider release. State each constraint in `MarkdownDescription` too, because tfplugindocs does not render validator descriptions.
+
+Go regexp has no negative lookahead. To reject a prefix, as tag keys must not begin with `anthropic`, use `stringvalidator.RegexMatches(withoutPrefix(prefix), message)` from `helpers.go` inside `mapvalidator.KeysAre`.
 
 ### Collection Validators (`setvalidator`, `listvalidator`, `mapvalidator`)
 
@@ -48,8 +50,9 @@ None of these are used anywhere in this provider yet. `OneOf` is a natural fit f
 | `SizeAtMost(n)`     | Maximum element count |
 | `SizeBetween(min, max)` | Element count range |
 | `ValueStringsAre(...)` | Per-element string validators |
+| `KeysAre(...)` (`mapvalidator`) | Per-key string validators |
 
-Not used anywhere in this provider yet.
+`anthropic_workspace` uses `setvalidator.SizeAtLeast(1)` on `allowed_inference_geos`, and `mapvalidator.KeysAre` on `tags`.
 
 ### Numeric Validators (`int64validator`, `float64validator`)
 
@@ -78,7 +81,7 @@ Not used anywhere in a resource schema yet. The provider schema itself has a rel
 
 ## Custom Validators
 
-Implement the relevant `validator.<Type>` interface for provider-specific logic. This provider defines none today:
+Implement the relevant `validator.<Type>` interface only when no composition of library validators expresses the rule. This provider defines none today:
 
 ```go
 type notBlankValidator struct{}

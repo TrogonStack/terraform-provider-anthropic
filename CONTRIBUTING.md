@@ -10,7 +10,7 @@ Install the toolchain with `mise install`. Every command below runs through `mis
 
 ```bash
 mise run build   # full CI pipeline: download, lint, test, tidy, docs, diff
-mise run test    # go test -count=1 -cover ./...
+mise run test    # go test -count=1 -cover -skip TestLive ./...
 mise run lint    # golangci-lint run --fix ./...
 mise run docs    # regenerate docs/ from schema descriptions
 ```
@@ -19,11 +19,13 @@ mise run docs    # regenerate docs/ from schema descriptions
 
 ## Testing
 
-Tests never reach the Anthropic API. Resource tests inject an `*anthropic.Client` built with `newClient` and pointed at an `httptest.Server` through the package-level `testAPIClient`, which bypasses provider configuration entirely.
+`mise run test` never reaches the Anthropic API. Resource tests serve `fakeAdminAPI`, an in-memory fake of the Admin API endpoints the provider calls, from an `httptest.Server`, and inject an `*anthropic.Client` built with `newClient` and pointed at it through the package-level `testAPIClient`, which bypasses provider configuration entirely. Acceptance-style tests run Terraform itself, so they need `TF_ACC=1`.
 
 ```bash
-mise exec -- go test ./internal/provider/ -v -run TestNewClient
+TF_ACC=1 mise exec -- go test ./internal/provider/ -v -run TestAccWorkspace
 ```
+
+`mise run test:live` runs the `TestLive_*` tests against a real organization. They need `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` and create uniquely named workspaces, which destroy archives rather than deletes.
 
 ## Code layout
 
