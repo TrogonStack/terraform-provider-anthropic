@@ -27,20 +27,22 @@ description: >
 
 ## This Provider: Conventions
 
-No resource or data source exists yet. The provider surface will eventually cover the Anthropic Admin API's organization, workspaces, workspace members, users, invites, API keys, service accounts, and federation issuers/rules, but no schema or CRUD behavior for any of them is decided. What's already in place, in `internal/provider/`:
+`anthropic_workspace` (`resource_workspace.go`) is the first and reference resource. The provider surface will grow to cover the rest of the Admin API (workspace members, users, invites, API keys, service accounts, federation issuers and rules); copy the workspace resource's shape unless the API forces something else. In `internal/provider/`:
 
-- **Package**: `internal/provider` (single flat package; every resource and data source will live here)
+- **Package**: `internal/provider` (single flat package; every resource and data source lives here)
 - **File naming**: `resource_<name>.go`, `resource_<name>_test.go`, `data_source_<name>.go`
 - **Provider**: `anthropicProvider`. `Metadata` sets `resp.TypeName = "anthropic"`, so every resource type name is `anthropic_<name>`
 - **Provider schema**: two Optional, Sensitive attributes, `api_key` (an Admin API key, `sk-ant-admin...`) and `auth_token` (an OAuth or workload-identity-federation token with the `org:admin` scope). Setting both is `errConflictingCredential`. If neither is set, the official Go SDK's own credential chain applies, in order: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_PROFILE`, workload identity federation env vars (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN_FILE`), then the active or default profile. There is no provider-level "no credential" error; an unresolved credential surfaces as a failure on the first API call. `base_url` is Optional and falls back to the SDK's own default
-- **Provider client**: the hand-rolled HTTP client is gone. The provider depends on the official Go SDK, `github.com/anthropics/anthropic-sdk-go` v1.78.0. `client.go`'s `newClient(clientConfig{apiKey, authToken, baseURL string}) (*anthropic.Client, error)` builds an `anthropic.Client` via `anthropic.NewClient(opts...)`, always passing `option.WithMaxRetries(5)`, plus `option.WithAPIKey`/`option.WithAuthToken` when a credential is configured and `option.WithBaseURL` when `base_url` is set. The SDK handles its own retry behavior; this provider carries no custom retry logic of its own
-- **Client injection**: each resource and data source's `Configure` method casts `req.ProviderData.(*anthropic.Client)`
-- **Registration**: `Resources()` and `DataSources()` in `provider.go` both return empty slices today. The first resource adds its constructor to `Resources()`
-- **ID helper**: no `rsId()`-style helper exists yet, but sibling providers in this family define one (a Computed `StringAttribute` with `UseStateForUnknown`, see `references/guides/schema-design.md`); reach for the same shape instead of inventing a new one when the first resource lands
-- **Import**: whether every resource's ID round-trips through a plain `ImportStatePassthroughID`, or whether some need compound parsing (for example a workspace member keyed by `<workspace_id>/<user_id>`), depends on which resource lands first. Both patterns are documented in `references/guides/state-management.md`
-- **Error handling**: SDK calls return errors; an API failure unwraps with `errors.As` into `*anthropic.Error` (an alias for the SDK's internal `apierror.Error`), which carries `StatusCode int` and a `Type() shared.ErrorType` method parsed from the API's `{"error":{"type":"..."}}` envelope (for example `shared.ErrorTypeNotFoundError`). Whether "not found" is detected from `StatusCode`, `.Type()`, or both, is a decision for whoever implements the first resource, not something to guess at here
-- **Destroy semantics**: undecided; depends on what the Admin API supports per resource (hard delete, archive, revoke) once a resource lands
-- **Testing**: `testAPIClient` is a package var of type `*anthropic.Client` that tests set to inject a client pointed at an `httptest.Server`, built with `newClient(clientConfig{apiKey: "...", baseURL: server.URL})`. Whether a fake Admin API server is one handler covering every endpoint or several smaller ones is undecided until there's a resource to drive it
+- **Provider client**: the official Go SDK, `github.com/anthropics/anthropic-sdk-go` v1.78.0. `client.go`'s `newClient(clientConfig{apiKey, authToken, baseURL string}) (*anthropic.Client, error)` always passes `option.WithMaxRetries(5)`, plus `option.WithAPIKey`/`option.WithAuthToken` when a credential is configured and `option.WithBaseURL` when `base_url` is set. No custom retry logic
+- **Client injection**: each resource's `Configure` casts `req.ProviderData.(*anthropic.Client)` and calls `client.Organization.*` with the CRUD method's `ctx`
+- **Registration**: `Resources()` in `provider.go` lists `newWorkspace`. `DataSources()` is still empty
+- **Helpers** (`helpers.go`): `rsId()` (Computed `id` with `UseStateForUnknown`), `isConfigured`, `optionalString` (API `""`/`null` to a null string), `timestampValue` (RFC 3339 or null), `mapStrings` (a non-nil map for a known value, so an empty map still reaches the API), `writeOnceString()` (plan modifier that errors when a set value is changed or removed, for write-once API fields where replacement would be destructive), `mapKeysWithoutPrefix` (map key validator)
+- **SDK params**: `param.Opt[T]` fields are set with `anthropic.String(...)`. Plain map and slice fields tagged `omitzero` are omitted only when nil; a non-nil empty map is sent as `{}`. Union params such as `allowed_inference_geos` set `OfUnrestricted: constant.ValueOf[constant.Unrestricted]()` or `OfGeos`
+- **Value objects**: convert between the Terraform model and SDK types through a small domain type (for example `dataResidency` with `dataResidencyFromAPI`, `dataResidencyFromObject`, `objectValue`, `createParam`, `updateParam`) instead of shuffling primitives inline in CRUD methods
+- **Import**: `anthropic_workspace` uses `ImportStatePassthroughID`. Compound IDs (for example a workspace member keyed by `<workspace_id>/<user_id>`) are documented in `references/guides/state-management.md`
+- **Error handling**: `isNotFound(err)` in `errors.go` unwraps with `errors.As` into `*anthropic.Error` (an alias for the SDK's `apierror.Error`) and matches `StatusCode == 404`. Read removes the resource from state on a 404 or a non-zero `ArchivedAt`; Delete ignores both. API failures are reported as `"API Error"` with `Unable to <verb> <resource>: %s`
+- **Destroy semantics**: the Admin API has no workspace delete, so `anthropic_workspace` Delete archives (irreversible, and it archives the workspace's API keys). Document a non-delete destroy in the schema description and README
+- **Testing**: `fake_admin_api_test.go` holds `fakeAdminAPI`, one `http.Handler` with a `ServeMux` for every Admin API endpoint the provider calls, a mutex-guarded map per object type, `X-Api-Key: testAPIKey` enforcement, and Anthropic-shaped JSON errors. Extend it for new resources rather than adding another fake. `setupTestServer(t, handler)` and `setupTestClient(t, server)` in `provider_test.go` wire it up through `testAPIClient`; `testProviderConfig` is the provider block for steps. `live_test.go` holds `TestLive_*`, skipped unless `TF_ACC` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` are set
 
 ---
 
@@ -102,7 +104,7 @@ func (r *fooResource) Configure(_ context.Context, req resource.ConfigureRequest
 
 ## Adding a Data Source
 
-The provider does not define any data sources yet (`DataSources()` returns an empty slice), and no resource exists yet either. The shape below is a generic Plugin Framework data source, illustrative only:
+The provider does not define any data sources yet (`DataSources()` returns an empty slice). The shape below is a generic Plugin Framework data source, illustrative only:
 
 ```go
 var _ datasource.DataSource = &fooDataSource{}
@@ -192,7 +194,7 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 
 const testProviderConfig = `
 provider "anthropic" {
-  api_key = "sk-ant-admin-test"
+  api_key = "sk-ant-admin-unused"
 }
 `
 ```
@@ -201,11 +203,9 @@ provider "anthropic" {
 
 ```go
 func TestAccFoo_Basic(t *testing.T) {
-    fake := newFakeAdminAPI() // illustrative: no fake server exists yet
-    server := httptest.NewServer(fake)
-    t.Cleanup(server.Close)
-    testAPIClient, _ = newClient(clientConfig{apiKey: "sk-ant-admin-test", baseURL: server.URL})
-    t.Cleanup(func() { testAPIClient = nil })
+    fake := newFakeAdminAPI()
+    server := setupTestServer(t, fake)
+    setupTestClient(t, server)
 
     resource.Test(t, resource.TestCase{
         ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -228,8 +228,8 @@ resource "anthropic_foo" "test" {
 ### Running Tests
 
 ```bash
-go test ./internal/provider/ -v -run TestAcc
-go test ./internal/provider/ -v -run TestAccFoo
+TF_ACC=1 go test ./internal/provider/ -v -run TestAcc
+TF_ACC=1 go test ./internal/provider/ -v -run TestAccWorkspace
 ```
 
 Full details: `references/guides/testing.md`
@@ -238,7 +238,7 @@ Full details: `references/guides/testing.md`
 
 ## State Upgrade
 
-No resource exists yet, so none has needed a state upgrade. If a future breaking schema change requires one (e.g., changing an attribute from a Set to a nested block):
+No resource has needed a state upgrade yet. If a future breaking schema change requires one (e.g., changing an attribute from a Set to a nested block):
 
 1. Increment `Version` in the schema
 2. Implement `resource.ResourceWithUpgradeState`

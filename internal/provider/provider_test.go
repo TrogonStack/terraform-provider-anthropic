@@ -6,12 +6,54 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
 
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
 	"anthropic": providerserver.NewProtocol6WithError(New("test")()),
+}
+
+// testProviderConfig is a minimal provider config that passes schema validation.
+// The testAPIClient override bypasses provider configuration, so this value is unused.
+const testProviderConfig = `
+provider "anthropic" {
+  api_key = "sk-ant-admin-unused"
+}
+`
+
+func setupTestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	return server
+}
+
+// setupTestClient sets the package-level testAPIClient with an SDK client pointing
+// at the test server. Must be called before running terraform-plugin-testing steps.
+func setupTestClient(t *testing.T, server *httptest.Server) {
+	t.Helper()
+	client, err := newClient(clientConfig{apiKey: testAPIKey, baseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testAPIClient = client
+	t.Cleanup(func() { testAPIClient = nil })
+}
+
+func TestFakeRejectsMissingAPIKey(t *testing.T) {
+	server := setupTestServer(t, newFakeAdminAPI())
+	client, err := newClient(clientConfig{apiKey: "sk-ant-admin-wrong", baseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = client.Organization.Workspaces.Get(t.Context(), "wrkspc_missing")
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected a request with the wrong API key to fail with 401, got: %v", err)
+	}
 }
 
 func TestProviderServes(t *testing.T) {
