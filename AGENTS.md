@@ -65,6 +65,8 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 - `organization_role` is Optional + Computed with `UseStateForUnknown` and no static default, because the API defaults to `developer` on create when omitted. Update sends it only when configured and changed
 - `anthropic_workspace_service_account`'s `id` is `"<workspace_id>/<service_account_id>"`; `ImportState` splits on `/` and sets both attributes directly rather than passthrough
 - `fake_service_accounts_test.go` holds the service account and membership fake handlers and state, registered onto the shared `fakeAdminAPI` mux through `registerServiceAccountRoutes()`, called once from `newFakeAdminAPI()`
+- `anthropic_workspace_service_account` manages only an explicit membership; a `Get` on the default workspace with no explicit row returns an implicit `workspace_user` membership, and `Read` treats that as gone so Terraform plans a new `Add` rather than an `Update`, which the API rejects on an implicit membership
+- `Read` and `Delete` both treat a non-404 error from the membership call as "gone" once a secondary `Workspaces.Get` call shows the workspace archived or missing, since the Admin API returns 400, not 404, for an archived workspace
 
 ### Testing
 

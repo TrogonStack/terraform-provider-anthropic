@@ -64,7 +64,6 @@ resource "anthropic_workspace_service_account" "test" {
 					resource.TestCheckResourceAttr(workspaceServiceAccountAddress, "workspace_id", "wrkspc_0001"),
 					resource.TestCheckResourceAttr(workspaceServiceAccountAddress, "service_account_id", "svac_0001"),
 					resource.TestCheckResourceAttr(workspaceServiceAccountAddress, "workspace_role", "workspace_developer"),
-					resource.TestCheckResourceAttr(workspaceServiceAccountAddress, "implicit", "false"),
 					resource.TestCheckResourceAttrSet(workspaceServiceAccountAddress, "created_by_actor_id"),
 					checkFakeWorkspaceMembership(fake, func(m *fakeServiceAccountMembership) error {
 						if m.WorkspaceRole != "workspace_developer" {
@@ -149,6 +148,149 @@ resource "anthropic_workspace_service_account" "test" {
 				ImportStateId:     "not-a-valid-id",
 				ImportStateVerify: false,
 				ExpectError:       regexp.MustCompile(`Invalid Import ID`),
+			},
+		},
+	})
+}
+
+func TestAccWorkspaceServiceAccount_ExplicitRowRemovedOutOfBandIsRecreated(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	fake.mu.Lock()
+	defaultWorkspaceID := fake.seedDefaultWorkspace("Default")
+	fake.mu.Unlock()
+
+	var serviceAccountId string
+	checkRole := checkFakeWorkspaceMembership(fake, func(m *fakeServiceAccountMembership) error {
+		if m.WorkspaceRole != "workspace_developer" {
+			return fmt.Errorf("fake membership role = %q, want workspace_developer", m.WorkspaceRole)
+		}
+		return nil
+	})
+	config := testProviderConfig + fmt.Sprintf(`
+resource "anthropic_service_account" "test" {
+  name = "github-actions-deploy"
+}
+
+resource "anthropic_workspace_service_account" "test" {
+  workspace_id        = %q
+  service_account_id  = anthropic_service_account.test.id
+  workspace_role      = "workspace_developer"
+}
+`, defaultWorkspaceID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					captureServiceAccountId(&serviceAccountId),
+					checkRole,
+				),
+			},
+			{
+				PreConfig: func() {
+					fake.mu.Lock()
+					defer fake.mu.Unlock()
+					delete(fake.workspaceMembers, defaultWorkspaceID+"/"+serviceAccountId)
+				},
+				Config:           config,
+				ConfigPlanChecks: expectWorkspaceServiceAccountAction(plancheck.ResourceActionCreate),
+				Check:            checkRole,
+			},
+		},
+	})
+}
+
+func TestAccWorkspaceServiceAccount_ImportImplicitMembershipFails(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	fake.mu.Lock()
+	defaultWorkspaceID := fake.seedDefaultWorkspace("Default")
+	serviceAccountID := fake.seedServiceAccount("imported-elsewhere")
+	fake.mu.Unlock()
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig + fmt.Sprintf(`
+resource "anthropic_workspace_service_account" "test" {
+  workspace_id        = %q
+  service_account_id  = %q
+  workspace_role      = "workspace_developer"
+}
+`, defaultWorkspaceID, serviceAccountID),
+				ResourceName:  workspaceServiceAccountAddress,
+				ImportState:   true,
+				ImportStateId: defaultWorkspaceID + "/" + serviceAccountID,
+				ExpectError:   regexp.MustCompile(`Cannot import non-existent remote object`),
+			},
+		},
+	})
+}
+
+func TestAccWorkspaceServiceAccount_WorkspaceArchivedOutOfBand(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	fake.mu.Lock()
+	defaultWorkspaceID := fake.seedDefaultWorkspace("Default")
+	fake.mu.Unlock()
+
+	checkRole := checkFakeWorkspaceMembership(fake, func(m *fakeServiceAccountMembership) error {
+		if m.WorkspaceRole != "workspace_developer" {
+			return fmt.Errorf("fake membership role = %q, want workspace_developer", m.WorkspaceRole)
+		}
+		return nil
+	})
+	membershipConfig := testProviderConfig + fmt.Sprintf(`
+resource "anthropic_service_account" "test" {
+  name = "github-actions-deploy"
+}
+
+resource "anthropic_workspace_service_account" "test" {
+  workspace_id        = %q
+  service_account_id  = anthropic_service_account.test.id
+  workspace_role      = "workspace_developer"
+}
+`, defaultWorkspaceID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: membershipConfig,
+				Check:  checkRole,
+			},
+			{
+				PreConfig: func() {
+					fake.mu.Lock()
+					defer fake.mu.Unlock()
+					fake.archive(defaultWorkspaceID)
+				},
+				Config:           membershipConfig,
+				ConfigPlanChecks: expectWorkspaceServiceAccountAction(plancheck.ResourceActionCreate),
+				ExpectError:      regexp.MustCompile(`(?s)Workspace\s+is\s+archived`),
+			},
+			{
+				Config: testProviderConfig + `
+resource "anthropic_service_account" "test" {
+  name = "github-actions-deploy"
+}
+`,
+				Check: func(s *terraform.State) error {
+					if _, ok := s.RootModule().Resources[workspaceServiceAccountAddress]; ok {
+						return fmt.Errorf("expected the workspace service account membership to be removed from state")
+					}
+					return nil
+				},
 			},
 		},
 	})

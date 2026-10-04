@@ -7,16 +7,20 @@ description: |-
   A service account must be an explicit member of a workspace before a
   federation rule targeting it can issue a token scoped to that workspace.
   Every service account already holds an implicit workspace_user membership
-  in the organization's default workspace; this resource manages an explicit
-  membership with a chosen role instead.
+  in the organization's default workspace; this resource manages only an
+  explicit membership with a chosen role. The implicit default-workspace
+  membership cannot be imported or managed by this resource. Removing an
+  explicit default-workspace membership reverts the service account to that
+  implicit workspace_user membership rather than leaving it with no
+  membership at all.
   This endpoint accepts only an OAuth access token with the org:admin scope,
   through the provider's auth_token attribute, ANTHROPIC_AUTH_TOKEN, or
   Workload Identity Federation. An Admin API key is rejected.
   Destroying this resource removes the membership. The Admin API does not
   document the effect of removing a service account's only membership in its
   default workspace, so a destroy there surfaces whatever the API returns. A
-  membership removed outside Terraform is removed from state and created again
-  on the next apply.
+  membership removed outside Terraform, or a workspace archived outside
+  Terraform, is removed from state and created again on the next apply.
 ---
 
 # anthropic_workspace_service_account (Resource)
@@ -26,8 +30,12 @@ Manages a service account's membership in an Anthropic workspace through the Adm
 A service account must be an explicit member of a workspace before a
 federation rule targeting it can issue a token scoped to that workspace.
 Every service account already holds an implicit `workspace_user` membership
-in the organization's default workspace; this resource manages an explicit
-membership with a chosen role instead.
+in the organization's default workspace; this resource manages only an
+explicit membership with a chosen role. The implicit default-workspace
+membership cannot be imported or managed by this resource. Removing an
+explicit default-workspace membership reverts the service account to that
+implicit `workspace_user` membership rather than leaving it with no
+membership at all.
 
 This endpoint accepts only an OAuth access token with the `org:admin` scope,
 through the provider's `auth_token` attribute, `ANTHROPIC_AUTH_TOKEN`, or
@@ -36,8 +44,8 @@ Workload Identity Federation. An Admin API key is rejected.
 Destroying this resource removes the membership. The Admin API does not
 document the effect of removing a service account's only membership in its
 default workspace, so a destroy there surfaces whatever the API returns. A
-membership removed outside Terraform is removed from state and created again
-on the next apply.
+membership removed outside Terraform, or a workspace archived outside
+Terraform, is removed from state and created again on the next apply.
 
 ## Example Usage
 
@@ -70,7 +78,6 @@ resource "anthropic_workspace_service_account" "github_actions_deploy" {
 
 - `created_by_actor_id` (String) Tagged ID of the actor that created this membership.
 - `id` (String) `<workspace_id>/<service_account_id>`.
-- `implicit` (Boolean) True when this is the implicit default-workspace membership every service account has absent an explicit one. An implicit membership always has role `workspace_user` and cannot be removed.
 
 ## Import
 

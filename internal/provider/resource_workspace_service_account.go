@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -33,7 +32,6 @@ type workspaceServiceAccountResourceModel struct {
 	WorkspaceId      types.String `tfsdk:"workspace_id"`
 	ServiceAccountId types.String `tfsdk:"service_account_id"`
 	WorkspaceRole    types.String `tfsdk:"workspace_role"`
-	Implicit         types.Bool   `tfsdk:"implicit"`
 	CreatedByActorId types.String `tfsdk:"created_by_actor_id"`
 }
 
@@ -48,8 +46,12 @@ func (r *workspaceServiceAccountResource) Schema(_ context.Context, _ resource.S
 A service account must be an explicit member of a workspace before a
 federation rule targeting it can issue a token scoped to that workspace.
 Every service account already holds an implicit ` + "`workspace_user`" + ` membership
-in the organization's default workspace; this resource manages an explicit
-membership with a chosen role instead.
+in the organization's default workspace; this resource manages only an
+explicit membership with a chosen role. The implicit default-workspace
+membership cannot be imported or managed by this resource. Removing an
+explicit default-workspace membership reverts the service account to that
+implicit ` + "`workspace_user`" + ` membership rather than leaving it with no
+membership at all.
 
 This endpoint accepts only an OAuth access token with the ` + "`org:admin`" + ` scope,
 through the provider's ` + "`auth_token`" + ` attribute, ` + "`ANTHROPIC_AUTH_TOKEN`" + `, or
@@ -58,8 +60,8 @@ Workload Identity Federation. An Admin API key is rejected.
 Destroying this resource removes the membership. The Admin API does not
 document the effect of removing a service account's only membership in its
 default workspace, so a destroy there surfaces whatever the API returns. A
-membership removed outside Terraform is removed from state and created again
-on the next apply.`,
+membership removed outside Terraform, or a workspace archived outside
+Terraform, is removed from state and created again on the next apply.`,
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -87,13 +89,6 @@ on the next apply.`,
 				MarkdownDescription: "Role granted to the service account in this workspace: `workspace_admin`, `workspace_developer`, `workspace_restricted_developer`, or `workspace_user`. A service account cannot hold `workspace_billing`.",
 				Validators: []validator.String{
 					stringvalidator.OneOf("workspace_admin", "workspace_developer", "workspace_restricted_developer", "workspace_user"),
-				},
-			},
-			"implicit": schema.BoolAttribute{
-				Computed:            true,
-				MarkdownDescription: "True when this is the implicit default-workspace membership every service account has absent an explicit one. An implicit membership always has role `workspace_user` and cannot be removed.",
-				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"created_by_actor_id": schema.StringAttribute{
@@ -156,7 +151,16 @@ func (r *workspaceServiceAccountResource) Read(ctx context.Context, req resource
 		return
 	}
 	if err != nil {
+		gone, goneErr := r.workspaceGone(ctx, state.WorkspaceId.ValueString())
+		if goneErr == nil && gone {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Unable to read workspace service account membership: %s", err))
+		return
+	}
+	if member.Implicit {
+		resp.State.RemoveResource(ctx)
 		return
 	}
 
@@ -198,9 +202,24 @@ func (r *workspaceServiceAccountResource) Delete(ctx context.Context, req resour
 		WorkspaceID: state.WorkspaceId.ValueString(),
 	})
 	if err != nil && !isNotFound(err) {
+		gone, goneErr := r.workspaceGone(ctx, state.WorkspaceId.ValueString())
+		if goneErr == nil && gone {
+			return
+		}
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Unable to remove service account from workspace: %s", err))
 		return
 	}
+}
+
+func (r *workspaceServiceAccountResource) workspaceGone(ctx context.Context, workspaceID string) (bool, error) {
+	workspace, err := r.client.Organization.Workspaces.Get(ctx, workspaceID)
+	if isNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !workspace.ArchivedAt.IsZero(), nil
 }
 
 func (r *workspaceServiceAccountResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
@@ -219,6 +238,5 @@ func applyWorkspaceServiceAccount(model *workspaceServiceAccountResourceModel, m
 	model.WorkspaceId = types.StringValue(member.WorkspaceID)
 	model.ServiceAccountId = types.StringValue(member.ServiceAccountID)
 	model.WorkspaceRole = types.StringValue(string(member.WorkspaceRole))
-	model.Implicit = types.BoolValue(member.Implicit)
 	model.CreatedByActorId = types.StringValue(member.CreatedByActorID)
 }

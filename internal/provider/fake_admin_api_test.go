@@ -52,6 +52,7 @@ type fakeAdminAPI struct {
 	mu                   sync.Mutex
 	nextID               int
 	workspaces           map[string]*fakeWorkspace
+	defaultWorkspaceID   string
 	nextServiceAccountID int
 	serviceAccounts      map[string]*fakeServiceAccount
 	workspaceMembers     map[string]*fakeServiceAccountMembership
@@ -195,6 +196,12 @@ func (f *fakeAdminAPI) seed(name string, residency fakeDataResidency) string {
 	ws.DataResidency = residency
 	f.workspaces[ws.ID] = ws
 	return ws.ID
+}
+
+func (f *fakeAdminAPI) seedDefaultWorkspace(name string) string {
+	id := f.seed(name, fakeDataResidency{WorkspaceGeo: "us", AllowedInferenceGeos: "unrestricted", DefaultInferenceGeo: "global"})
+	f.defaultWorkspaceID = id
+	return id
 }
 
 func (f *fakeAdminAPI) archive(id string) {

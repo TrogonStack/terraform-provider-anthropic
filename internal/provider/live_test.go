@@ -166,7 +166,6 @@ resource "anthropic_workspace_service_account" "test" {
 					resource.TestCheckResourceAttr("anthropic_service_account.test", "name", name),
 					resource.TestCheckResourceAttr("anthropic_service_account.test", "organization_role", "developer"),
 					resource.TestCheckResourceAttr("anthropic_workspace_service_account.test", "workspace_role", "workspace_developer"),
-					resource.TestCheckResourceAttr("anthropic_workspace_service_account.test", "implicit", "false"),
 					func(s *terraform.State) error {
 						serviceAccountId = s.RootModule().Resources["anthropic_service_account.test"].Primary.ID
 						return nil

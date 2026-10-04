@@ -188,8 +188,13 @@ func (f *fakeAdminAPI) archiveServiceAccount(id string) {
 
 func (f *fakeAdminAPI) addWorkspaceServiceAccount(w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.PathValue("workspace_id")
-	if _, ok := f.workspaces[workspaceID]; !ok {
+	ws, ok := f.workspaces[workspaceID]
+	if !ok {
 		writeAPIError(w, http.StatusNotFound, "not_found_error", "Workspace not found")
+		return
+	}
+	if ws.ArchivedAt != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "Workspace is archived")
 		return
 	}
 
@@ -233,17 +238,58 @@ func (f *fakeAdminAPI) addWorkspaceServiceAccount(w http.ResponseWriter, r *http
 }
 
 func (f *fakeAdminAPI) getWorkspaceServiceAccount(w http.ResponseWriter, r *http.Request) {
-	member, ok := f.workspaceMembers[r.PathValue("workspace_id")+"/"+r.PathValue("service_account_id")]
+	workspaceID := r.PathValue("workspace_id")
+	serviceAccountID := r.PathValue("service_account_id")
+
+	ws, ok := f.workspaces[workspaceID]
 	if !ok {
-		writeAPIError(w, http.StatusNotFound, "not_found_error", "Service account workspace membership not found")
+		writeAPIError(w, http.StatusNotFound, "not_found_error", "Workspace not found")
 		return
 	}
-	writeFakeJSON(w, http.StatusOK, member)
+	if ws.ArchivedAt != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "Workspace is archived")
+		return
+	}
+
+	if member, ok := f.workspaceMembers[workspaceID+"/"+serviceAccountID]; ok {
+		writeFakeJSON(w, http.StatusOK, member)
+		return
+	}
+
+	if sa, ok := f.serviceAccounts[serviceAccountID]; ok && sa.ArchivedAt == nil && workspaceID == f.defaultWorkspaceID {
+		writeFakeJSON(w, http.StatusOK, &fakeServiceAccountMembership{
+			ServiceAccountID: serviceAccountID,
+			WorkspaceID:      workspaceID,
+			WorkspaceRole:    "workspace_user",
+			Implicit:         true,
+			Type:             "service_account_workspace_member",
+		})
+		return
+	}
+
+	writeAPIError(w, http.StatusNotFound, "not_found_error", "Service account workspace membership not found")
 }
 
 func (f *fakeAdminAPI) updateWorkspaceServiceAccount(w http.ResponseWriter, r *http.Request) {
-	member, ok := f.workspaceMembers[r.PathValue("workspace_id")+"/"+r.PathValue("service_account_id")]
+	workspaceID := r.PathValue("workspace_id")
+	serviceAccountID := r.PathValue("service_account_id")
+
+	ws, ok := f.workspaces[workspaceID]
 	if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found_error", "Workspace not found")
+		return
+	}
+	if ws.ArchivedAt != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "Workspace is archived")
+		return
+	}
+
+	member, ok := f.workspaceMembers[workspaceID+"/"+serviceAccountID]
+	if !ok {
+		if _, saOK := f.serviceAccounts[serviceAccountID]; saOK && workspaceID == f.defaultWorkspaceID {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "Implicit memberships cannot be updated; add the service account explicitly")
+			return
+		}
 		writeAPIError(w, http.StatusNotFound, "not_found_error", "Service account workspace membership not found")
 		return
 	}
@@ -263,6 +309,17 @@ func (f *fakeAdminAPI) updateWorkspaceServiceAccount(w http.ResponseWriter, r *h
 func (f *fakeAdminAPI) removeWorkspaceServiceAccount(w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.PathValue("workspace_id")
 	serviceAccountID := r.PathValue("service_account_id")
+
+	ws, ok := f.workspaces[workspaceID]
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found_error", "Workspace not found")
+		return
+	}
+	if ws.ArchivedAt != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "Workspace is archived")
+		return
+	}
+
 	delete(f.workspaceMembers, workspaceID+"/"+serviceAccountID)
 	writeFakeJSON(w, http.StatusOK, map[string]any{
 		"type":               "service_account_workspace_member_deleted",
