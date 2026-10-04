@@ -49,11 +49,18 @@ func (k *fakeAPIKey) toJSON() map[string]any {
 		"status":           k.Status,
 		"created_at":       k.CreatedAt,
 		"expires_at":       fakeTimePtrJSON(k.ExpiresAt),
-		"partial_key_hint": k.PartialKeyHint,
+		"partial_key_hint": fakeStringPtrJSON(k.PartialKeyHint),
 		"created_by":       k.CreatedBy,
 		"principal":        k.Principal,
 		"scope":            k.Scope,
 	}
+}
+
+func fakeStringPtrJSON(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func fakeTimePtrJSON(t *string) any {
@@ -78,6 +85,7 @@ type fakeAPIKeySeed struct {
 	CreatedByType  string // "user" or "service_account"
 	ExpiresAt      string
 	PartialKeyHint string
+	NoKeyHint      bool
 }
 
 // seedAPIKey plants a key as if it had been created in the Claude Console.
@@ -110,7 +118,7 @@ func (f *fakeAdminAPI) seedAPIKey(seed fakeAPIKeySeed) string {
 	}
 
 	hint := seed.PartialKeyHint
-	if hint == "" {
+	if hint == "" && !seed.NoKeyHint {
 		hint = "sk-ant-api03-R2D...igAA"
 	}
 

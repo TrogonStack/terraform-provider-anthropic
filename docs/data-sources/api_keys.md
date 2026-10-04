@@ -50,7 +50,7 @@ Read-Only:
 - `expires_at` (String) RFC 3339 timestamp of when the API key expires. Null when the key never expires.
 - `id` (String) ID of the API key.
 - `name` (String) Name of the API key.
-- `partial_key_hint` (String) Partially redacted hint for the API key.
+- `partial_key_hint` (String) Partially redacted hint for the API key. Null when the API returns none.
 - `principal` (Attributes) The principal the API key acts as. Null when the key is not bound to a principal. (see [below for nested schema](#nestedatt--api_keys--principal))
 - `scope` (Attributes) Where the API key belongs: its workspace, or the organization for a principal-bound key with no workspace. (see [below for nested schema](#nestedatt--api_keys--scope))
 - `status` (String) Status of the API key.

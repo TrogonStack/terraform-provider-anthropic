@@ -73,7 +73,7 @@ func apiKeyFromAPI(key anthropic.APIKey) (apiKeyModel, diag.Diagnostics) {
 		Status:         types.StringValue(string(key.Status)),
 		CreatedAt:      timestampValue(key.CreatedAt),
 		ExpiresAt:      timestampValue(key.ExpiresAt),
-		PartialKeyHint: types.StringValue(key.PartialKeyHint),
+		PartialKeyHint: optionalString(key.PartialKeyHint),
 	}
 
 	createdBy := types.ObjectNull(apiKeyCreatedByAttrTypes)
@@ -175,7 +175,7 @@ of relying on destroy to deactivate or archive a key.`,
 			},
 			"partial_key_hint": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Partially redacted hint for the API key, e.g. `sk-ant-api03-R2D...igAA`.",
+				MarkdownDescription: "Partially redacted hint for the API key, e.g. `sk-ant-api03-R2D...igAA`. Null when the API returns none.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},

@@ -61,7 +61,7 @@ import {
 - `created_by` (Attributes) The actor that created the API key. Null for a legacy, workload-identity-federated, or system-created key. (see [below for nested schema](#nestedatt--created_by))
 - `expires_at` (String) RFC 3339 timestamp of when the API key expires. Null when the key never expires.
 - `id` (String) The unique ID of this resource.
-- `partial_key_hint` (String) Partially redacted hint for the API key, e.g. `sk-ant-api03-R2D...igAA`.
+- `partial_key_hint` (String) Partially redacted hint for the API key, e.g. `sk-ant-api03-R2D...igAA`. Null when the API returns none.
 - `principal` (Attributes) The principal the API key acts as. Null when the key is not bound to a principal. (see [below for nested schema](#nestedatt--principal))
 - `scope` (Attributes) Where the API key belongs: its workspace, or the organization for a principal-bound key with no workspace. (see [below for nested schema](#nestedatt--scope))
 

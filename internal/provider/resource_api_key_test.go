@@ -170,8 +170,9 @@ func TestAccAPIKey_ImportOrganizationScopedPrincipalLessNeverExpiring(t *testing
 
 	fake.mu.Lock()
 	keyId := fake.seedAPIKey(fakeAPIKeySeed{
-		Name:   "Legacy",
-		Status: "active",
+		Name:      "Legacy",
+		Status:    "active",
+		NoKeyHint: true,
 	})
 	fake.mu.Unlock()
 
@@ -200,6 +201,7 @@ resource "anthropic_api_key" "test" {
 					resource.TestCheckNoResourceAttr(apiKeyAddress, "principal.type"),
 					resource.TestCheckNoResourceAttr(apiKeyAddress, "created_by.id"),
 					resource.TestCheckNoResourceAttr(apiKeyAddress, "expires_at"),
+					resource.TestCheckNoResourceAttr(apiKeyAddress, "partial_key_hint"),
 				),
 			},
 		},

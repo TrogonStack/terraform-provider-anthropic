@@ -82,7 +82,7 @@ func (d *apiKeysDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 						},
 						"partial_key_hint": schema.StringAttribute{
 							Computed:            true,
-							MarkdownDescription: "Partially redacted hint for the API key.",
+							MarkdownDescription: "Partially redacted hint for the API key. Null when the API returns none.",
 						},
 						"created_by": schema.SingleNestedAttribute{
 							Computed:            true,
