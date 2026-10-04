@@ -49,12 +49,16 @@ type fakeWorkspaceRequest struct {
 // fakeAdminAPI is an in-memory stand-in for the Admin API workspace endpoints.
 // It replaces tags wholesale on update, matching how the provider sends them.
 type fakeAdminAPI struct {
-	mu           sync.Mutex
-	nextID       int
-	workspaces   map[string]*fakeWorkspace
-	nextAPIKeyID int
-	apiKeys      map[string]*fakeAPIKey
-	mux          *http.ServeMux
+	mu                   sync.Mutex
+	nextID               int
+	workspaces           map[string]*fakeWorkspace
+	defaultWorkspaceID   string
+	nextServiceAccountID int
+	serviceAccounts      map[string]*fakeServiceAccount
+	workspaceMembers     map[string]*fakeServiceAccountMembership
+	nextAPIKeyID         int
+	apiKeys              map[string]*fakeAPIKey
+	mux                  *http.ServeMux
 }
 
 func newFakeAdminAPI() *fakeAdminAPI {
@@ -67,6 +71,7 @@ func newFakeAdminAPI() *fakeAdminAPI {
 	f.mux.HandleFunc("GET /v1/organizations/workspaces/{id}", f.withWorkspace(f.getWorkspace))
 	f.mux.HandleFunc("POST /v1/organizations/workspaces/{id}", f.withWorkspace(f.updateWorkspace))
 	f.mux.HandleFunc("POST /v1/organizations/workspaces/{id}/archive", f.withWorkspace(f.archiveWorkspace))
+	f.registerServiceAccountRoutes()
 	f.registerAPIKeyRoutes()
 	f.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found_error", fmt.Sprintf("%s %s is not served by the fake", r.Method, r.URL.Path))
@@ -197,6 +202,12 @@ func (f *fakeAdminAPI) seed(name string, residency fakeDataResidency) string {
 	ws.DataResidency = residency
 	f.workspaces[ws.ID] = ws
 	return ws.ID
+}
+
+func (f *fakeAdminAPI) seedDefaultWorkspace(name string) string {
+	id := f.seed(name, fakeDataResidency{WorkspaceGeo: "us", AllowedInferenceGeos: "unrestricted", DefaultInferenceGeo: "global"})
+	f.defaultWorkspaceID = id
+	return id
 }
 
 func (f *fakeAdminAPI) archive(id string) {

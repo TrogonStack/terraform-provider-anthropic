@@ -1,0 +1,1 @@
+terraform import anthropic_workspace_service_account.github_actions_deploy wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ/svac_01JwQvzr7rXLA5AGx3HKfFUJ

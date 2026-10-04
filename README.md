@@ -26,10 +26,14 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 
 ## Resources
 
-| Type                  | API                             | SDK                              |
-| --------------------- | -------------------------------- | -------------------------------- |
-| `anthropic_workspace` | `/v1/organizations/workspaces`   | `client.Organization.Workspaces` |
-| `anthropic_api_key`   | `/v1/organizations/api_keys`     | `client.Organization.APIKeys`    |
+| Type                                  | API                                                            | SDK                                              |
+| ------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------ |
+| `anthropic_workspace`                 | `/v1/organizations/workspaces`                                 | `client.Organization.Workspaces`                 |
+| `anthropic_api_key`                   | `/v1/organizations/api_keys`                                   | `client.Organization.APIKeys`                    |
+| `anthropic_service_account`           | `/v1/organizations/service_accounts`                           | `client.Organization.ServiceAccounts`            |
+| `anthropic_workspace_service_account` | `/v1/organizations/workspaces/{workspace_id}/service_accounts` | `client.Organization.Workspaces.ServiceAccounts` |
+
+`anthropic_service_account` and `anthropic_workspace_service_account` accept only an OAuth access token with the `org:admin` scope, through `auth_token`, `ANTHROPIC_AUTH_TOKEN`, or Workload Identity Federation. An Admin API key is rejected. Destroying `anthropic_service_account` archives the service account, which cannot be undone and is rejected while a live federation rule still targets it. Destroying `anthropic_workspace_service_account` only removes the membership.
 
 ## Data sources
 

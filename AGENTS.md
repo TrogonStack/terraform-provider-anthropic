@@ -66,6 +66,16 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 - Delete never calls the API. This resource only adopts keys it did not create, and archiving is unrecoverable, so removing the block from configuration only forgets the key in state; it never archives or deactivates it
 - `anthropic_api_keys` paginates with `ListAutoPaging` and `Limit: 1000`, filters by `workspace_id`, `status` (including `expired`, since listing a key the resource cannot touch is still useful) and `created_by_user_id`, and derives `id` from whichever filters are set so two different filter sets never collide in the same state
 
+### Service account attributes
+
+- `name` is Required and `RequiresReplace`: the API has no rename, so a name change archives the old service account and creates a new one
+- `description` is Optional; the API stores an unset description as `""`, which `optionalString()` maps to null. Update sends `param.Null[string]()` to clear it and `anthropic.String(...)` to set it, matching the workspace `tags` clear-with-explicit-value pattern but at the field level instead of a whole map
+- `organization_role` is Optional + Computed with `UseStateForUnknown` and no static default, because the API defaults to `developer` on create when omitted. Update sends it only when configured and changed
+- `anthropic_workspace_service_account`'s `id` is `"<workspace_id>/<service_account_id>"`; `ImportState` splits on `/` and sets both attributes directly rather than passthrough
+- `fake_service_accounts_test.go` holds the service account and membership fake handlers and state, registered onto the shared `fakeAdminAPI` mux through `registerServiceAccountRoutes()`, called once from `newFakeAdminAPI()`
+- `anthropic_workspace_service_account` manages only an explicit membership; a `Get` on the default workspace with no explicit row returns an implicit `workspace_user` membership, and `Read` treats that as gone so Terraform plans a new `Add` rather than an `Update`, which the API rejects on an implicit membership
+- `Read` and `Delete` both treat a non-404 error from the membership call as "gone" once a secondary `Workspaces.Get` call shows the workspace archived or missing, since the Admin API returns 400, not 404, for an archived workspace
+
 ### Testing
 
 Tests use an in-memory fake of the Admin API, never real API calls:
