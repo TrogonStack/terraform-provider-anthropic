@@ -57,7 +57,9 @@ This endpoint accepts only an OAuth access token with the ` + "`org:admin`" + ` 
 through the provider's ` + "`auth_token`" + ` attribute, ` + "`ANTHROPIC_AUTH_TOKEN`" + `, or
 Workload Identity Federation. An Admin API key is rejected.
 
-Destroying this resource removes the membership. The Admin API does not
+Creating this resource refuses to take over a membership that already exists
+explicitly, since the Admin API upserts on add; import that membership
+instead. Destroying this resource removes the membership. The Admin API does not
 document the effect of removing a service account's only membership in its
 default workspace, so a destroy there surfaces whatever the API returns. A
 membership removed outside Terraform, or a workspace archived outside
@@ -121,12 +123,24 @@ func (r *workspaceServiceAccountResource) Create(ctx context.Context, req resour
 		return
 	}
 
+	workspaceId := plan.WorkspaceId.ValueString()
+	serviceAccountId := plan.ServiceAccountId.ValueString()
+
+	existing, err := r.client.Organization.Workspaces.ServiceAccounts.Get(ctx, serviceAccountId, anthropic.OrganizationWorkspaceServiceAccountGetParams{
+		WorkspaceID: workspaceId,
+	})
+	if err == nil && !existing.Implicit {
+		resp.Diagnostics.AddError("Membership Already Exists",
+			fmt.Sprintf("Service account %s is already an explicit member of workspace %s. Import it instead: terraform import anthropic_workspace_service_account.<name> %s/%s", serviceAccountId, workspaceId, workspaceId, serviceAccountId))
+		return
+	}
+
 	params := anthropic.OrganizationWorkspaceServiceAccountAddParams{
-		ServiceAccountID: plan.ServiceAccountId.ValueString(),
+		ServiceAccountID: serviceAccountId,
 		WorkspaceRole:    anthropic.NoBillingWorkspaceRole(plan.WorkspaceRole.ValueString()),
 	}
 
-	member, err := r.client.Organization.Workspaces.ServiceAccounts.Add(ctx, plan.WorkspaceId.ValueString(), params)
+	member, err := r.client.Organization.Workspaces.ServiceAccounts.Add(ctx, workspaceId, params)
 	if err != nil {
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Unable to add service account to workspace: %s", err))
 		return

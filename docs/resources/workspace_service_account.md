@@ -16,7 +16,9 @@ description: |-
   This endpoint accepts only an OAuth access token with the org:admin scope,
   through the provider's auth_token attribute, ANTHROPIC_AUTH_TOKEN, or
   Workload Identity Federation. An Admin API key is rejected.
-  Destroying this resource removes the membership. The Admin API does not
+  Creating this resource refuses to take over a membership that already exists
+  explicitly, since the Admin API upserts on add; import that membership
+  instead. Destroying this resource removes the membership. The Admin API does not
   document the effect of removing a service account's only membership in its
   default workspace, so a destroy there surfaces whatever the API returns. A
   membership removed outside Terraform, or a workspace archived outside
@@ -41,7 +43,9 @@ This endpoint accepts only an OAuth access token with the `org:admin` scope,
 through the provider's `auth_token` attribute, `ANTHROPIC_AUTH_TOKEN`, or
 Workload Identity Federation. An Admin API key is rejected.
 
-Destroying this resource removes the membership. The Admin API does not
+Creating this resource refuses to take over a membership that already exists
+explicitly, since the Admin API upserts on add; import that membership
+instead. Destroying this resource removes the membership. The Admin API does not
 document the effect of removing a service account's only membership in its
 default workspace, so a destroy there surfaces whatever the API returns. A
 membership removed outside Terraform, or a workspace archived outside

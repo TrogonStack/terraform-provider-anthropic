@@ -173,6 +173,16 @@ func (f *fakeAdminAPI) archiveServiceAccountRoute(w http.ResponseWriter, _ *http
 
 // seedServiceAccount and archiveServiceAccount simulate changes made outside
 // Terraform. Callers outside ServeHTTP must hold mu.
+func (f *fakeAdminAPI) seedWorkspaceServiceAccount(workspaceID, serviceAccountID, role string) {
+	f.workspaceMembers[workspaceID+"/"+serviceAccountID] = &fakeServiceAccountMembership{
+		ServiceAccountID: serviceAccountID,
+		WorkspaceID:      workspaceID,
+		WorkspaceRole:    role,
+		CreatedByActorID: fakeActorID,
+		Type:             "service_account_workspace_member",
+	}
+}
+
 func (f *fakeAdminAPI) seedServiceAccount(name string) string {
 	sa := f.newServiceAccount(name)
 	f.serviceAccounts[sa.ID] = sa
@@ -218,11 +228,9 @@ func (f *fakeAdminAPI) addWorkspaceServiceAccount(w http.ResponseWriter, r *http
 	}
 
 	key := workspaceID + "/" + body.ServiceAccountID
-	// The real Add endpoint upserts an existing membership; the fake rejects a
-	// duplicate instead, since workspace_id and service_account_id are both
-	// RequiresReplace and a legitimate plan never adds the same pair twice.
-	if _, exists := f.workspaceMembers[key]; exists {
-		writeAPIError(w, http.StatusConflict, "invalid_request_error", "Service account is already a member of this workspace")
+	if existing, ok := f.workspaceMembers[key]; ok {
+		existing.WorkspaceRole = body.WorkspaceRole
+		writeFakeJSON(w, http.StatusOK, existing)
 		return
 	}
 

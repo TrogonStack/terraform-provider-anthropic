@@ -235,6 +235,40 @@ resource "anthropic_workspace_service_account" "test" {
 	})
 }
 
+func TestAccWorkspaceServiceAccount_CreateRefusesExistingExplicitMembership(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	fake.mu.Lock()
+	workspaceID := fake.seed("Membership", fakeDataResidency{})
+	serviceAccountID := fake.seedServiceAccount("added-in-console")
+	fake.seedWorkspaceServiceAccount(workspaceID, serviceAccountID, "workspace_admin")
+	fake.mu.Unlock()
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig + fmt.Sprintf(`
+resource "anthropic_workspace_service_account" "test" {
+  workspace_id        = %q
+  service_account_id  = %q
+  workspace_role      = "workspace_developer"
+}
+`, workspaceID, serviceAccountID),
+				ExpectError: regexp.MustCompile(`already an explicit member`),
+			},
+		},
+	})
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if got := fake.workspaceMembers[workspaceID+"/"+serviceAccountID].WorkspaceRole; got != "workspace_admin" {
+		t.Fatalf("existing membership role = %s, want workspace_admin untouched", got)
+	}
+}
+
 func TestAccWorkspaceServiceAccount_WorkspaceArchivedOutOfBand(t *testing.T) {
 	fake := newFakeAdminAPI()
 	server := setupTestServer(t, fake)
