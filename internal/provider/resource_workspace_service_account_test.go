@@ -269,6 +269,40 @@ resource "anthropic_workspace_service_account" "test" {
 	}
 }
 
+func TestAccWorkspaceServiceAccount_CreateStopsWhenMembershipCheckFails(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	fake.mu.Lock()
+	workspaceID := fake.seed("Archived", fakeDataResidency{})
+	fake.archive(workspaceID)
+	serviceAccountID := fake.seedServiceAccount("blocked")
+	fake.mu.Unlock()
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig + fmt.Sprintf(`
+resource "anthropic_workspace_service_account" "test" {
+  workspace_id        = %q
+  service_account_id  = %q
+  workspace_role      = "workspace_developer"
+}
+`, workspaceID, serviceAccountID),
+				ExpectError: regexp.MustCompile(`Unable to check for an existing workspace service account membership`),
+			},
+		},
+	})
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if _, exists := fake.workspaceMembers[workspaceID+"/"+serviceAccountID]; exists {
+		t.Fatal("membership was added although the existence check failed")
+	}
+}
+
 func TestAccWorkspaceServiceAccount_WorkspaceArchivedOutOfBand(t *testing.T) {
 	fake := newFakeAdminAPI()
 	server := setupTestServer(t, fake)

@@ -129,6 +129,10 @@ func (r *workspaceServiceAccountResource) Create(ctx context.Context, req resour
 	existing, err := r.client.Organization.Workspaces.ServiceAccounts.Get(ctx, serviceAccountId, anthropic.OrganizationWorkspaceServiceAccountGetParams{
 		WorkspaceID: workspaceId,
 	})
+	if err != nil && !isNotFound(err) {
+		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Unable to check for an existing workspace service account membership: %s", err))
+		return
+	}
 	if err == nil && !existing.Implicit {
 		resp.Diagnostics.AddError("Membership Already Exists",
 			fmt.Sprintf("Service account %s is already an explicit member of workspace %s. Import it instead: terraform import anthropic_workspace_service_account.<name> %s/%s", serviceAccountId, workspaceId, workspaceId, serviceAccountId))
