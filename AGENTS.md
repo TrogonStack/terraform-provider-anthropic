@@ -58,6 +58,14 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 - `external_key_id` is write-once in the API. `writeOnceString()` in `helpers.go` rejects a plan that changes or removes a set value; it is never `RequiresReplace`, because replacing a workspace archives it
 - `data_residency` is an Optional + Computed `SingleNestedAttribute` with `objectplanmodifier.UseStateForUnknown()` and no default. Leaving it unset means Terraform does not manage residency: Create omits it so the API applies its defaults, Update never sends it, and an imported workspace in any geo plans no change. A static default would plan an update, or a replace through `workspace_geo`, for every workspace whose residency differs from it. `workspace_geo` and `default_inference_geo` are Optional + Computed with `UseStateForUnknown` and no default, and an unknown value is omitted from the request. `workspace_geo` uses `RequiresReplaceIfConfigured`, so only an explicitly configured geo that differs from state replaces the workspace (which archives it). `allowed_inference_geos` is Optional only: when `data_residency` is set, null maps to the API's `"unrestricted"` union variant. Geo values are deliberately not validated client-side, so a geo the API adds works without a provider release; an empty `allowed_inference_geos` set is rejected
 
+### Service account attributes
+
+- `name` is Required and `RequiresReplace`: the API has no rename, so a name change archives the old service account and creates a new one
+- `description` is Optional; the API stores an unset description as `""`, which `optionalString()` maps to null. Update sends `param.Null[string]()` to clear it and `anthropic.String(...)` to set it, matching the workspace `tags` clear-with-explicit-value pattern but at the field level instead of a whole map
+- `organization_role` is Optional + Computed with `UseStateForUnknown` and no static default, because the API defaults to `developer` on create when omitted. Update sends it only when configured and changed
+- `anthropic_workspace_service_account`'s `id` is `"<workspace_id>/<service_account_id>"`; `ImportState` splits on `/` and sets both attributes directly rather than passthrough
+- `fake_service_accounts_test.go` holds the service account and membership fake handlers and state, registered onto the shared `fakeAdminAPI` mux through `registerServiceAccountRoutes()`, called once from `newFakeAdminAPI()`
+
 ### Testing
 
 Tests use an in-memory fake of the Admin API, never real API calls:

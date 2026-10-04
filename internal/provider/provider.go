@@ -103,6 +103,8 @@ func (p *anthropicProvider) Configure(ctx context.Context, req provider.Configur
 func (p *anthropicProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		newWorkspace,
+		newServiceAccount,
+		newWorkspaceServiceAccount,
 	}
 }
 

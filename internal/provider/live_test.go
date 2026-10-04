@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -23,6 +24,16 @@ func requireLiveCredentials(t *testing.T) {
 	}
 	if os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("ANTHROPIC_AUTH_TOKEN") == "" {
 		t.Skip("set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN to run live acceptance tests against a real Anthropic organization")
+	}
+}
+
+func requireLiveAuthToken(t *testing.T) {
+	t.Helper()
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("set TF_ACC=1 to run live acceptance tests against a real Anthropic organization")
+	}
+	if os.Getenv("ANTHROPIC_AUTH_TOKEN") == "" {
+		t.Skip("set ANTHROPIC_AUTH_TOKEN to run live acceptance tests against service account and federation endpoints; an Admin API key is rejected")
 	}
 }
 
@@ -113,6 +124,90 @@ func checkLiveWorkspaceArchived(client *anthropic.Client, workspaceId string) er
 	}
 	if workspace.ArchivedAt.IsZero() {
 		return fmt.Errorf("expected workspace %s to be archived, but it is still active", workspaceId)
+	}
+	return nil
+}
+
+func TestLive_ServiceAccount(t *testing.T) {
+	requireLiveAuthToken(t)
+
+	client := liveAnthropicClient(t)
+	name := "tf-live-" + strings.ToLower(acctest.RandString(8))
+	var serviceAccountId string
+
+	config := func(role string) string {
+		return liveProviderConfig + fmt.Sprintf(`
+resource "anthropic_workspace" "test" {
+  name = %q
+}
+
+resource "anthropic_service_account" "test" {
+  name = %q
+}
+
+resource "anthropic_workspace_service_account" "test" {
+  workspace_id       = anthropic_workspace.test.id
+  service_account_id = anthropic_service_account.test.id
+  workspace_role     = %q
+}
+`, name, name, role)
+	}
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: func(_ *terraform.State) error {
+			return checkLiveServiceAccountArchived(client, serviceAccountId)
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: config("workspace_developer"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("anthropic_service_account.test", "id"),
+					resource.TestCheckResourceAttr("anthropic_service_account.test", "name", name),
+					resource.TestCheckResourceAttr("anthropic_service_account.test", "organization_role", "developer"),
+					resource.TestCheckResourceAttr("anthropic_workspace_service_account.test", "workspace_role", "workspace_developer"),
+					resource.TestCheckResourceAttr("anthropic_workspace_service_account.test", "implicit", "false"),
+					func(s *terraform.State) error {
+						serviceAccountId = s.RootModule().Resources["anthropic_service_account.test"].Primary.ID
+						return nil
+					},
+				),
+			},
+			{
+				Config: config("workspace_admin"),
+				Check:  resource.TestCheckResourceAttr("anthropic_workspace_service_account.test", "workspace_role", "workspace_admin"),
+			},
+			{
+				ResourceName:      "anthropic_service_account.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				ResourceName: "anthropic_workspace_service_account.test",
+				ImportState:  true,
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					rs := s.RootModule().Resources["anthropic_workspace_service_account.test"]
+					return rs.Primary.Attributes["workspace_id"] + "/" + rs.Primary.Attributes["service_account_id"], nil
+				},
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func checkLiveServiceAccountArchived(client *anthropic.Client, serviceAccountId string) error {
+	if serviceAccountId == "" {
+		return fmt.Errorf("no service account ID was captured to verify destruction")
+	}
+	serviceAccount, err := client.Organization.ServiceAccounts.Get(context.Background(), serviceAccountId)
+	if isNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read service account while verifying destroy of %s: %w", serviceAccountId, err)
+	}
+	if serviceAccount.ArchivedAt.IsZero() {
+		return fmt.Errorf("expected service account %s to be archived, but it is still active", serviceAccountId)
 	}
 	return nil
 }
