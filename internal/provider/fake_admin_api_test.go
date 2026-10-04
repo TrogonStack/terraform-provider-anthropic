@@ -49,19 +49,25 @@ type fakeWorkspaceRequest struct {
 // fakeAdminAPI is an in-memory stand-in for the Admin API workspace endpoints.
 // It replaces tags wholesale on update, matching how the provider sends them.
 type fakeAdminAPI struct {
-	mu         sync.Mutex
-	nextID     int
-	workspaces map[string]*fakeWorkspace
-	mux        *http.ServeMux
+	mu           sync.Mutex
+	nextID       int
+	workspaces   map[string]*fakeWorkspace
+	nextAPIKeyID int
+	apiKeys      map[string]*fakeAPIKey
+	mux          *http.ServeMux
 }
 
 func newFakeAdminAPI() *fakeAdminAPI {
-	f := &fakeAdminAPI{workspaces: make(map[string]*fakeWorkspace)}
+	f := &fakeAdminAPI{
+		workspaces: make(map[string]*fakeWorkspace),
+		apiKeys:    make(map[string]*fakeAPIKey),
+	}
 	f.mux = http.NewServeMux()
 	f.mux.HandleFunc("POST /v1/organizations/workspaces", f.createWorkspace)
 	f.mux.HandleFunc("GET /v1/organizations/workspaces/{id}", f.withWorkspace(f.getWorkspace))
 	f.mux.HandleFunc("POST /v1/organizations/workspaces/{id}", f.withWorkspace(f.updateWorkspace))
 	f.mux.HandleFunc("POST /v1/organizations/workspaces/{id}/archive", f.withWorkspace(f.archiveWorkspace))
+	f.registerAPIKeyRoutes()
 	f.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found_error", fmt.Sprintf("%s %s is not served by the fake", r.Method, r.URL.Path))
 	})
