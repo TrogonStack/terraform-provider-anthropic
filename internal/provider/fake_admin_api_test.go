@@ -56,17 +56,23 @@ type fakeAdminAPI struct {
 	nextServiceAccountID int
 	serviceAccounts      map[string]*fakeServiceAccount
 	workspaceMembers     map[string]*fakeServiceAccountMembership
+	nextAPIKeyID         int
+	apiKeys              map[string]*fakeAPIKey
 	mux                  *http.ServeMux
 }
 
 func newFakeAdminAPI() *fakeAdminAPI {
-	f := &fakeAdminAPI{workspaces: make(map[string]*fakeWorkspace)}
+	f := &fakeAdminAPI{
+		workspaces: make(map[string]*fakeWorkspace),
+		apiKeys:    make(map[string]*fakeAPIKey),
+	}
 	f.mux = http.NewServeMux()
 	f.mux.HandleFunc("POST /v1/organizations/workspaces", f.createWorkspace)
 	f.mux.HandleFunc("GET /v1/organizations/workspaces/{id}", f.withWorkspace(f.getWorkspace))
 	f.mux.HandleFunc("POST /v1/organizations/workspaces/{id}", f.withWorkspace(f.updateWorkspace))
 	f.mux.HandleFunc("POST /v1/organizations/workspaces/{id}/archive", f.withWorkspace(f.archiveWorkspace))
 	f.registerServiceAccountRoutes()
+	f.registerAPIKeyRoutes()
 	f.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found_error", fmt.Sprintf("%s %s is not served by the fake", r.Method, r.URL.Path))
 	})

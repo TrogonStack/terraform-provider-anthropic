@@ -105,11 +105,14 @@ func (p *anthropicProvider) Resources(ctx context.Context) []func() resource.Res
 		newWorkspace,
 		newServiceAccount,
 		newWorkspaceServiceAccount,
+		newAPIKey,
 	}
 }
 
 func (p *anthropicProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{}
+	return []func() datasource.DataSource{
+		newAPIKeysDataSource,
+	}
 }
 
 func New(version string) func() provider.Provider {

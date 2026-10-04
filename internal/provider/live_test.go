@@ -111,6 +111,22 @@ resource "anthropic_workspace" "test" {
 	})
 }
 
+func TestLive_APIKeys(t *testing.T) {
+	requireLiveCredentials(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: liveProviderConfig + `
+data "anthropic_api_keys" "test" {}
+`,
+				Check: resource.TestCheckResourceAttrSet("data.anthropic_api_keys.test", "id"),
+			},
+		},
+	})
+}
+
 func checkLiveWorkspaceArchived(client *anthropic.Client, workspaceId string) error {
 	if workspaceId == "" {
 		return fmt.Errorf("no workspace ID was captured to verify destruction")
