@@ -206,6 +206,53 @@ resource "anthropic_api_key" "test" {
 	})
 }
 
+func TestAccAPIKey_RenameExpiredKeepsStatus(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	fake.mu.Lock()
+	keyId := fake.seedAPIKey(fakeAPIKeySeed{
+		Name:   "Expired",
+		Status: "expired",
+	})
+	fake.mu.Unlock()
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig + `
+resource "anthropic_api_key" "test" {
+  name = "Expired"
+}
+`,
+				ResourceName:       apiKeyAddress,
+				ImportState:        true,
+				ImportStateId:      keyId,
+				ImportStatePersist: true,
+			},
+			{
+				Config: testProviderConfig + `
+resource "anthropic_api_key" "test" {
+  name = "Expired, renamed"
+}
+`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(apiKeyAddress, "name", "Expired, renamed"),
+					resource.TestCheckResourceAttr(apiKeyAddress, "status", "expired"),
+					checkFakeAPIKey(fake, keyId, func(k *fakeAPIKey) error {
+						if k.Name != "Expired, renamed" || k.Status != "expired" {
+							return fmt.Errorf("name = %q status = %q, want renamed and still expired", k.Name, k.Status)
+						}
+						return nil
+					}),
+				),
+			},
+		},
+	})
+}
+
 func TestFakeRejectsSettingAPIKeyStatusToExpired(t *testing.T) {
 	fake := newFakeAdminAPI()
 	server := setupTestServer(t, fake)

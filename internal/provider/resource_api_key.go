@@ -308,8 +308,9 @@ func (r *apiKeyResource) Read(ctx context.Context, req resource.ReadRequest, res
 }
 
 func (r *apiKeyResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan apiKeyModel
+	var plan, state apiKeyModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -317,7 +318,7 @@ func (r *apiKeyResource) Update(ctx context.Context, req resource.UpdateRequest,
 	params := anthropic.OrganizationAPIKeyUpdateParams{
 		Name: anthropic.String(plan.Name.ValueString()),
 	}
-	if isConfigured(plan.Status) {
+	if isConfigured(plan.Status) && !plan.Status.Equal(state.Status) {
 		params.Status = anthropic.OrganizationAPIKeyUpdateParamsStatus(plan.Status.ValueString())
 	}
 
