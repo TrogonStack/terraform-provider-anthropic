@@ -61,7 +61,7 @@ resource "anthropic_service_account" "github_actions_deploy" {
 
 ### Optional
 
-- `description` (String) Free-text description. The API stores an unset description as an empty string, which this provider treats as null.
+- `description` (String) Free-text description. The API stores an unset description as an empty string, which this provider treats as null, so leave the attribute out instead of setting it to `""`.
 - `organization_role` (String) Org-level role, `admin` or `developer`. The API defaults to `developer` when unset on create. A workload identity federation rule may be created or retargeted to grant `org:admin` scope only when this is `admin`; rules that grant `org:admin` are managed in the Claude Console, not through this provider.
 
 ### Read-Only

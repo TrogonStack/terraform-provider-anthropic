@@ -272,6 +272,9 @@ func TestAccServiceAccount_RejectsInvalidConfig(t *testing.T) {
   name = ""`, `string length must be between 1 and 255`},
 		{"uppercase name", `
   name = "Invalid-Name"`, `must contain only lowercase letters, digits, and hyphens`},
+		{"empty description", `
+  name        = "empty-description"
+  description = ""`, `string length must be at least 1`},
 		{"invalid organization role", `
   name              = "invalid-role"
   organization_role = "owner"`, `value must be one of`},

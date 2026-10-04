@@ -81,7 +81,10 @@ created again on the next apply.`,
 			},
 			"description": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Free-text description. The API stores an unset description as an empty string, which this provider treats as null.",
+				MarkdownDescription: "Free-text description. The API stores an unset description as an empty string, which this provider treats as null, so leave the attribute out instead of setting it to `\"\"`.",
+				Validators: []validator.String{
+					stringvalidator.LengthAtLeast(1),
+				},
 			},
 			"organization_role": schema.StringAttribute{
 				Optional:            true,
