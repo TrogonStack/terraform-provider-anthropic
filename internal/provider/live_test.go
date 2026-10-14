@@ -226,3 +226,69 @@ func checkLiveServiceAccountArchived(client *anthropic.Client, serviceAccountId 
 	}
 	return nil
 }
+
+func TestLive_TelemetryDestination(t *testing.T) {
+	requireLiveCredentials(t)
+
+	client := liveAnthropicClient(t)
+	displayName := "tf-live-" + acctest.RandString(8)
+	var destinationId string
+
+	config := func(name string) string {
+		return liveProviderConfig + fmt.Sprintf(`
+resource "anthropic_telemetry_destination" "test" {
+  endpoint_url = "https://otel.example.com/otlp"
+  display_name = %q
+  workspaces = {
+    type = "all"
+  }
+}
+`, name)
+	}
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: func(_ *terraform.State) error {
+			return checkLiveTelemetryDestinationDeleted(client, destinationId)
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: config(displayName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("anthropic_telemetry_destination.test", "id"),
+					resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "display_name", displayName),
+					resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "enabled", "true"),
+					resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "workspaces.type", "all"),
+					resource.TestCheckResourceAttrSet("anthropic_telemetry_destination.test", "created_at"),
+					func(s *terraform.State) error {
+						destinationId = s.RootModule().Resources["anthropic_telemetry_destination.test"].Primary.ID
+						return nil
+					},
+				),
+			},
+			{
+				Config: config(displayName + "-renamed"),
+				Check:  resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "display_name", displayName+"-renamed"),
+			},
+			{
+				ResourceName:      "anthropic_telemetry_destination.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func checkLiveTelemetryDestinationDeleted(client *anthropic.Client, destinationId string) error {
+	if destinationId == "" {
+		return fmt.Errorf("no telemetry destination ID was captured to verify destruction")
+	}
+	_, err := client.Beta.Organization.TelemetryDestinations.Get(context.Background(), destinationId, anthropic.BetaOrganizationTelemetryDestinationGetParams{})
+	if isNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read telemetry destination while verifying destroy of %s: %w", destinationId, err)
+	}
+	return fmt.Errorf("expected telemetry destination %s to be deleted, but it still exists", destinationId)
+}

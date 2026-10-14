@@ -32,14 +32,16 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 | `anthropic_api_key`                   | `/v1/organizations/api_keys`                                   | `client.Organization.APIKeys`                    |
 | `anthropic_service_account`           | `/v1/organizations/service_accounts`                           | `client.Organization.ServiceAccounts`            |
 | `anthropic_workspace_service_account` | `/v1/organizations/workspaces/{workspace_id}/service_accounts` | `client.Organization.Workspaces.ServiceAccounts` |
+| `anthropic_telemetry_destination`     | `/v1/organizations/telemetry_destinations`                     | `client.Beta.Organization.TelemetryDestinations` |
 
 `anthropic_service_account` and `anthropic_workspace_service_account` accept only an OAuth access token with the `org:admin` scope, through `auth_token`, `ANTHROPIC_AUTH_TOKEN`, or Workload Identity Federation. An Admin API key is rejected. Destroying `anthropic_service_account` archives the service account, which cannot be undone and is rejected while a live federation rule still targets it. Destroying `anthropic_workspace_service_account` only removes the membership.
 
 ## Data sources
 
-| Type                 | API                           | SDK                           |
-| -------------------- | ------------------------------ | ------------------------------ |
-| `anthropic_api_keys` | `/v1/organizations/api_keys`   | `client.Organization.APIKeys` |
+| Type                               | API                                        | SDK                                              |
+| ---------------------------------- | ------------------------------------------ | ------------------------------------------------ |
+| `anthropic_api_keys`               | `/v1/organizations/api_keys`               | `client.Organization.APIKeys`                    |
+| `anthropic_telemetry_destinations` | `/v1/organizations/telemetry_destinations` | `client.Beta.Organization.TelemetryDestinations` |
 
 ## Example
 
@@ -64,6 +66,8 @@ The Admin API has no method to delete a workspace, so destroying `anthropic_work
 `tags` is authoritative: removing a tag from the configuration removes it from the workspace. `external_key_id` is write-once, so Terraform rejects a plan that changes or removes it once set. When `data_residency` is unset, Terraform leaves the workspace's residency alone, so importing a workspace never plans a change to it. Configuring a `data_residency.workspace_geo` that differs from the workspace's replaces the workspace.
 
 The Admin API cannot create an API key or return an existing key's secret, so `anthropic_api_key` only adopts a key created in the Claude Console: apply a plain resource block with no import and Terraform fails before it reaches the API. Once imported, Terraform can rename the key and move it between `active`, `inactive` and `archived`; `expired` stays read-only. Destroying the resource only stops managing the key, since an archived key cannot be brought back. Use `anthropic_api_keys` to list keys across the organization, optionally filtered by workspace, status or creator.
+
+`anthropic_telemetry_destination` exports the spans of an organization's workspaces to an OpenTelemetry (OTLP/HTTP) collector, through the Admin API beta `telemetry-destinations-2026-08-11`. Header values such as the collector's `authorization` are write-only in the API, so Terraform keeps the configured values in state, marks them sensitive, and detects a header removed outside Terraform by its name. Destroying the resource deletes the destination. The API can disable a destination on its own after sustained delivery failures; `enabled` then reads `false`, `disabled_reason` says why, and the next apply enables it again. Use `anthropic_telemetry_destinations` to list destinations, optionally filtered by the workspaces they cover.
 
 ## Contributing
 
