@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/TrogonStack/terraform-provider-anthropic/compare/v0.3.0...v0.4.0) (2026-10-15)
+
+
+### Features
+
+* **telemetry_destination:** accept write-only headers ([#12](https://github.com/TrogonStack/terraform-provider-anthropic/issues/12)) ([0ea8878](https://github.com/TrogonStack/terraform-provider-anthropic/commit/0ea8878803092e8d005e1447b8de40cc23948626))
+
 ## [0.3.0](https://github.com/TrogonStack/terraform-provider-anthropic/compare/v0.2.0...v0.3.0) (2026-10-15)
 
 
