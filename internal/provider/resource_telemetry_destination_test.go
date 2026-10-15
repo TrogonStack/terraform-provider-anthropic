@@ -887,7 +887,7 @@ func TestFakeTelemetryDestinations_Semantics(t *testing.T) {
 
 	do := func(method, path, body string, beta bool) (int, map[string]any) {
 		t.Helper()
-		req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
+		req, err := http.NewRequestWithContext(t.Context(), method, server.URL+path, strings.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}

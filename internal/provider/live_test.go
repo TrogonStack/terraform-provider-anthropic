@@ -240,7 +240,7 @@ resource "anthropic_telemetry_destination" "test" {
   endpoint_url = "https://otel.example.com/otlp"
   display_name = %q
   workspaces = {
-    type = "all"
+    type = "include"
   }
 }
 `, name)
@@ -258,7 +258,7 @@ resource "anthropic_telemetry_destination" "test" {
 					resource.TestCheckResourceAttrSet("anthropic_telemetry_destination.test", "id"),
 					resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "display_name", displayName),
 					resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "enabled", "true"),
-					resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "workspaces.type", "all"),
+					resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "workspaces.type", "include"),
 					resource.TestCheckResourceAttrSet("anthropic_telemetry_destination.test", "created_at"),
 					func(s *terraform.State) error {
 						destinationId = s.RootModule().Resources["anthropic_telemetry_destination.test"].Primary.ID
