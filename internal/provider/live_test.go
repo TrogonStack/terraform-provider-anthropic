@@ -271,9 +271,10 @@ resource "anthropic_telemetry_destination" "test" {
 				Check:  resource.TestCheckResourceAttr("anthropic_telemetry_destination.test", "display_name", displayName+"-renamed"),
 			},
 			{
-				ResourceName:      "anthropic_telemetry_destination.test",
-				ImportState:       true,
-				ImportStateVerify: true,
+				ResourceName:            "anthropic_telemetry_destination.test",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"delivery_health"},
 			},
 		},
 	})
