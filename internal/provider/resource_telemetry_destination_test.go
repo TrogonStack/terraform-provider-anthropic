@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 )
 
 const telemetryDestinationAddress = "anthropic_telemetry_destination.test"
@@ -358,6 +359,193 @@ func TestAccTelemetryDestination_Headers(t *testing.T) {
 					}),
 					checkFakeTelemetryHeaders(fake, map[string]string{}),
 				),
+			},
+		},
+	})
+}
+
+func headersWoConfig(endpointURL, headers string, version int, extra string) string {
+	return telemetryConfig(fmt.Sprintf(`
+  endpoint_url       = %q
+  headers_wo         = { %s }
+  headers_wo_version = %d
+%s
+`, endpointURL, headers, version, extra) + telemetryWorkspacesHCL("all"))
+}
+
+func checkLastTelemetryUpdateOmitsHeaders(fake *fakeAdminAPI) resource.TestCheckFunc {
+	return checkLastTelemetryUpdate(fake, func(body map[string]any) error {
+		return expectAbsentAt(body, "headers")
+	})
+}
+
+func TestAccTelemetryDestination_HeadersWriteOnly(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	const url = "https://otel.example.com/otlp"
+	const displayName = "  display_name = \"Renamed\""
+
+	resource.Test(t, resource.TestCase{
+		TerraformVersionChecks:   []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_11_0)},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             checkTelemetryDestinationsGone(fake),
+		Steps: []resource.TestStep{
+			{
+				Config: headersWoConfig(url, `a = "1", b = "2"`, 1, ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(telemetryDestinationAddress, "headers_wo_version", "1"),
+					resource.TestCheckResourceAttr(telemetryDestinationAddress, "header_names.#", "2"),
+					resource.TestCheckNoResourceAttr(telemetryDestinationAddress, "headers_wo.%"),
+					resource.TestCheckNoResourceAttr(telemetryDestinationAddress, "headers.%"),
+					checkFakeTelemetryHeaders(fake, map[string]string{"a": "1", "b": "2"}),
+				),
+			},
+			{
+				Config:           headersWoConfig(url, `a = "1", b = "2"`, 1, ""),
+				ConfigPlanChecks: expectEmptyPlan(),
+			},
+			{
+				Config:           headersWoConfig(url, `a = "changed", b = "2"`, 1, ""),
+				ConfigPlanChecks: expectEmptyPlan(),
+				Check:            checkFakeTelemetryHeaders(fake, map[string]string{"a": "1", "b": "2"}),
+			},
+			{
+				Config:           headersWoConfig(url, `a = "1", b = "2"`, 1, displayName),
+				ConfigPlanChecks: expectTelemetryAction(plancheck.ResourceActionUpdate),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					checkLastTelemetryUpdateOmitsHeaders(fake),
+					checkFakeTelemetryHeaders(fake, map[string]string{"a": "1", "b": "2"}),
+				),
+			},
+			{
+				Config:           headersWoConfig(url, `a = "rotated"`, 2, displayName),
+				ConfigPlanChecks: expectTelemetryAction(plancheck.ResourceActionUpdate),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(telemetryDestinationAddress, "headers_wo_version", "2"),
+					resource.TestCheckResourceAttr(telemetryDestinationAddress, "header_names.#", "1"),
+					checkLastTelemetryUpdate(fake, func(body map[string]any) error {
+						return expectNullAt(body, "headers", "b")
+					}),
+					checkFakeTelemetryHeaders(fake, map[string]string{"a": "rotated"}),
+				),
+			},
+			{
+				Config:           headersWoConfig("https://other.example.com/otlp", `a = "rotated"`, 2, displayName),
+				ConfigPlanChecks: expectTelemetryAction(plancheck.ResourceActionUpdate),
+				Check:            checkFakeTelemetryHeaders(fake, map[string]string{"a": "rotated"}),
+			},
+			{
+				Config: telemetryConfig(`
+  endpoint_url = "https://other.example.com/otlp"
+` + displayName + `
+` + telemetryWorkspacesHCL("all")),
+				ConfigPlanChecks: expectTelemetryAction(plancheck.ResourceActionUpdate),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr(telemetryDestinationAddress, "headers_wo_version"),
+					resource.TestCheckResourceAttr(telemetryDestinationAddress, "header_names.#", "0"),
+					checkFakeTelemetryHeaders(fake, map[string]string{}),
+				),
+			},
+		},
+	})
+}
+
+func TestAccTelemetryDestination_HeadersToHeadersWriteOnly(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	const url = "https://otel.example.com/otlp"
+
+	resource.Test(t, resource.TestCase{
+		TerraformVersionChecks:   []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_11_0)},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             checkTelemetryDestinationsGone(fake),
+		Steps: []resource.TestStep{
+			{
+				Config: telemetryConfig(`
+  endpoint_url = "` + url + `"
+  headers      = { a = "1", b = "2" }
+` + telemetryWorkspacesHCL("all")),
+				Check: resource.TestCheckResourceAttr(telemetryDestinationAddress, "headers.%", "2"),
+			},
+			{
+				Config:           headersWoConfig(url, `a = "1"`, 1, ""),
+				ConfigPlanChecks: expectTelemetryAction(plancheck.ResourceActionUpdate),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr(telemetryDestinationAddress, "headers.%"),
+					checkLastTelemetryUpdate(fake, func(body map[string]any) error {
+						return expectNullAt(body, "headers", "b")
+					}),
+					checkFakeTelemetryHeaders(fake, map[string]string{"a": "1"}),
+				),
+			},
+			{
+				Config: telemetryConfig(`
+  endpoint_url = "` + url + `"
+  headers      = { a = "2" }
+` + telemetryWorkspacesHCL("all")),
+				ConfigPlanChecks: expectTelemetryAction(plancheck.ResourceActionUpdate),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(telemetryDestinationAddress, "headers.%", "1"),
+					resource.TestCheckNoResourceAttr(telemetryDestinationAddress, "headers_wo_version"),
+					checkFakeTelemetryHeaders(fake, map[string]string{"a": "2"}),
+				),
+			},
+		},
+	})
+}
+
+func TestAccTelemetryDestination_HeadersWriteOnlyAfterImport(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	const url = "https://otel.example.com/otlp"
+	config := headersWoConfig(url, `a = "1"`, 1, "")
+
+	resource.Test(t, resource.TestCase{
+		TerraformVersionChecks:   []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_11_0)},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             checkTelemetryDestinationsGone(fake),
+		Steps: []resource.TestStep{
+			{Config: config},
+			{
+				ResourceName:            telemetryDestinationAddress,
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"headers_wo_version"},
+			},
+			{
+				Config: testProviderConfig + `
+removed {
+  from = anthropic_telemetry_destination.test
+  lifecycle {
+    destroy = false
+  }
+}
+`,
+			},
+			{
+				Config:             config,
+				ImportState:        true,
+				ImportStateId:      "tdst_0001",
+				ImportStatePersist: true,
+				ResourceName:       telemetryDestinationAddress,
+			},
+			{
+				Config:           config,
+				ConfigPlanChecks: expectTelemetryAction(plancheck.ResourceActionUpdate),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(telemetryDestinationAddress, "headers_wo_version", "1"),
+					checkFakeTelemetryHeaders(fake, map[string]string{"a": "1"}),
+				),
+			},
+			{
+				Config:           config,
+				ConfigPlanChecks: expectEmptyPlan(),
 			},
 		},
 	})
@@ -817,6 +1005,41 @@ func TestAccTelemetryDestination_Validation(t *testing.T) {
 			telemetryConfig(`
   endpoint_url = "https://otel.example.com/otlp"
   headers = {` + manyHeaders(21) + `}
+` + telemetryWorkspacesHCL("all")),
+			`(?s)at most 20|20`,
+		},
+		{
+			"headers with headers_wo",
+			telemetryConfig(`
+  endpoint_url = "https://otel.example.com/otlp"
+  headers      = { a = "1" }
+  headers_wo   = { a = "1" }
+  headers_wo_version = 1
+` + telemetryWorkspacesHCL("all")),
+			`(?s)Invalid Attribute Combination|cannot be specified`,
+		},
+		{
+			"headers_wo without version",
+			telemetryConfig(`
+  endpoint_url = "https://otel.example.com/otlp"
+  headers_wo   = { a = "1" }
+` + telemetryWorkspacesHCL("all")),
+			`(?s)Invalid Attribute Combination|must be specified`,
+		},
+		{
+			"version without headers_wo",
+			telemetryConfig(`
+  endpoint_url = "https://otel.example.com/otlp"
+  headers_wo_version = 1
+` + telemetryWorkspacesHCL("all")),
+			`(?s)Invalid Attribute Combination|must be specified`,
+		},
+		{
+			"too many headers_wo",
+			telemetryConfig(`
+  endpoint_url = "https://otel.example.com/otlp"
+  headers_wo = {` + manyHeaders(21) + `}
+  headers_wo_version = 1
 ` + telemetryWorkspacesHCL("all")),
 			`(?s)at most 20|20`,
 		},
