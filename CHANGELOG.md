@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/TrogonStack/terraform-provider-anthropic/compare/v0.2.0...v0.3.0) (2026-10-15)
+
+
+### Features
+
+* **telemetry_destination:** manage OpenTelemetry destinations ([#10](https://github.com/TrogonStack/terraform-provider-anthropic/issues/10)) ([7bb8730](https://github.com/TrogonStack/terraform-provider-anthropic/commit/7bb873093cdbbb25e323da7697dafc8e7ea457cc))
+
 ## [0.2.0](https://github.com/TrogonStack/terraform-provider-anthropic/compare/v0.1.0...v0.2.0) (2026-10-04)
 
 
