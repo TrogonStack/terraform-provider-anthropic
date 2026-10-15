@@ -76,6 +76,16 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 - `anthropic_workspace_service_account` manages only an explicit membership; a `Get` on the default workspace with no explicit row returns an implicit `workspace_user` membership, and `Read` treats that as gone so Terraform plans a new `Add` rather than an `Update`, which the API rejects on an implicit membership
 - `Read` and `Delete` both treat a non-404 error from the membership call as "gone" once a secondary `Workspaces.Get` call shows the workspace archived or missing, since the Admin API returns 400, not 404, for an archived workspace
 
+### Telemetry destination attributes
+
+- Every call goes through `client.Beta.Organization.TelemetryDestinations`, which sends `anthropic-beta: telemetry-destinations-2026-08-11` itself; the fake rejects a request without it
+- `headers` is Optional + Sensitive and write-only: the API returns only `header_names`. State keeps the configured values, `Read` drops a configured header whose name is missing from `header_names` so it shows as drift, and `ImportStateVerify` ignores `headers`. Update sends every configured header again whenever headers change, since the API charges each stored value it is not sent as 4,096 bytes of its 16,384-byte limit, and sends `null` for a stored name that left the configuration through `option.WithJSONSet("headers", ...)`, because the SDK's `map[string]string` cannot carry a null. Setting a header requires `endpoint_url` in the same request, so Update always sends it with headers. A hostname or port change wipes every stored header, so headers are resent in that request and never nulled
+- `enabled` is Optional + Computed with a `true` default and maps to the `state` union. The API can disable a destination itself (`sustained_failure`, `invalid_address`, `redirect`), so `Read` reports `false` and `disabled_reason`, and a configuration with `enabled = true` plans an update that enables it again. Create cannot send `disabled`, so a destination configured with `enabled = false` gets a follow-up Update
+- `traces` is Optional + Computed. Update sends only changed fields; `endpoint_url` and `max_content_bytes` are nullable, so removing them from a configured block sends `param.Null`
+- `workspaces.workspace_ids` is not returned by Get. `fetch` lists it through the destination's workspaces endpoint for `include` and `exclude` types, and null means an empty list. A request body carries at most 100 IDs, a list holds at most 1,000, and the API refuses to replace a list above 750. Create and a type change send the first 100 IDs in the body and Add the rest one by one; an unchanged type diffs the sets and uses per-workspace Add and Remove, treating a 404 on Remove as done
+- Update turns a 409 into a diagnostic that asks for another apply, and Delete treats a 404 as already gone
+- `fake_telemetry_destinations_test.go` registers its routes through `registerTelemetryDestinationRoutes()` and models header merge with null removal, the host-change wipe, the 100-ID body cap, the 10-destination limit, newest-first pages of `fakeTelemetryPageSize`, and records update bodies in `telemetryUpdateBodies`. `telemetryConflicts` makes every update return 409 until cleared, because the SDK retries a 409
+
 ### Testing
 
 Tests use an in-memory fake of the Admin API, never real API calls:

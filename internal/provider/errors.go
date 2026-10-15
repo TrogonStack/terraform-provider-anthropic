@@ -11,3 +11,8 @@ func isNotFound(err error) bool {
 	var apiErr *anthropic.Error
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
 }
+
+func isConflict(err error) bool {
+	var apiErr *anthropic.Error
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict
+}
