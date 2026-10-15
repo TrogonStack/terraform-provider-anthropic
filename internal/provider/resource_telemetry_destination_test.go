@@ -1062,8 +1062,13 @@ func TestAccTelemetryDestination_Validation(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			var versionChecks []tfversion.TerraformVersionCheck
+			if strings.Contains(tc.config, "headers_wo") {
+				versionChecks = []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_11_0)}
+			}
 			resource.Test(t, resource.TestCase{
 				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+				TerraformVersionChecks:   versionChecks,
 				Steps: []resource.TestStep{
 					{Config: tc.config, ExpectError: regexp.MustCompile(tc.expect)},
 				},
