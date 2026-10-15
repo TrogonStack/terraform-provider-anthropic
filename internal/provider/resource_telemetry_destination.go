@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"sort"
@@ -39,6 +40,7 @@ var (
 	_ resource.Resource                   = &telemetryDestinationResource{}
 	_ resource.ResourceWithImportState    = &telemetryDestinationResource{}
 	_ resource.ResourceWithValidateConfig = &telemetryDestinationResource{}
+	_ resource.ResourceWithModifyPlan     = &telemetryDestinationResource{}
 )
 
 func newTelemetryDestination() resource.Resource { return &telemetryDestinationResource{} }
@@ -66,7 +68,9 @@ type telemetryDestinationModel struct {
 
 type telemetryDestinationResourceModel struct {
 	telemetryDestinationModel
-	Headers types.Map `tfsdk:"headers"`
+	Headers          types.Map   `tfsdk:"headers"`
+	HeadersWo        types.Map   `tfsdk:"headers_wo"`
+	HeadersWoVersion types.Int64 `tfsdk:"headers_wo_version"`
 }
 
 var telemetryTracesAttrTypes = map[string]attr.Type{
@@ -292,12 +296,20 @@ removed from state and created again on the next apply.
 
 Header values are write-only: the API stores them encrypted and never returns
 them, so Terraform keeps the values from the configuration in state and
-compares only header names against the API. When any header changes, the
+compares only header names against the API. To keep header values out of state
+and plan altogether, for example a value read from an ephemeral resource, set
+` + "`headers_wo`" + ` instead of ` + "`headers`" + `. It is a write-only argument that needs
+Terraform or OpenTofu 1.11 or later, and it pairs with ` + "`headers_wo_version`" + `:
+changing the version is what tells the provider to send the headers again.
+After ` + "`terraform import`" + `, set ` + "`headers_wo`" + ` and ` + "`headers_wo_version`" + ` in
+configuration and apply to send the headers.
+
+When any ` + "`headers`" + ` entry changes, the
 provider sends every configured header again, because the API counts each
 stored value it is not sent as 4,096 bytes toward its 16,384-byte limit.
 Changing the hostname or port of ` + "`endpoint_url`" + ` makes the API remove every
 stored header, so the provider sends every configured header again in the same
-request. Headers added outside Terraform are removed the next time this
+request, from ` + "`headers_wo`" + ` too. Headers added outside Terraform are removed the next time this
 resource is updated, and a configured header removed outside Terraform shows up
 as a change that sets it again.
 
@@ -330,6 +342,26 @@ rejects the update with a conflict. Run ` + "`terraform apply`" + ` again.`,
 				MarkdownDescription: "Request headers the API sends with every delivery, typically the collector's authentication header such as `authorization`. At most 20 headers. Names are at most 128 characters and two names cannot differ only in case. Values are printable ASCII, at most 4,096 characters, and cannot begin or end with a space. Names and values together are at most 16,384 bytes. Reserved names such as `host`, `cookie`, `user-agent`, and names starting with `content-`, `proxy-`, `x-forwarded-` or `anthropic-` are rejected. Values are write-only in the API, so Terraform keeps the configured values in state and drops a header from state when its name disappears from the API, which plans a change that sets it again. Removing a header from the configuration removes it from the destination.",
 				Validators: []validator.Map{
 					mapvalidator.SizeAtMost(20),
+					mapvalidator.ConflictsWith(path.MatchRoot("headers_wo")),
+				},
+			},
+			"headers_wo": schema.MapAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				WriteOnly:           true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "Write-only alternative to `headers`, with the same limits on names and values. The values are never stored in the plan or in state, so they can come from an ephemeral resource. Requires Terraform or OpenTofu 1.11 or later, and cannot be set together with `headers`. The provider sends every entry only when `headers_wo_version` changes or the hostname or port of `endpoint_url` changes, and then also removes every stored header whose name is not in the map. Any other update leaves the stored headers alone. Because the provider cannot read the values back, a header added, changed or removed outside Terraform, or a name that changes without a new `headers_wo_version`, is not planned as a change: Terraform warns when the names in the configuration differ from `header_names`, and a new `headers_wo_version` repairs them.",
+				Validators: []validator.Map{
+					mapvalidator.SizeAtMost(20),
+					mapvalidator.ConflictsWith(path.MatchRoot("headers")),
+					mapvalidator.AlsoRequires(path.MatchRoot("headers_wo_version")),
+				},
+			},
+			"headers_wo_version": schema.Int64Attribute{
+				Optional:            true,
+				MarkdownDescription: "An arbitrary version number for `headers_wo`. Change it to send the current `headers_wo` to the API again, for example after the secret rotates. A destination imported without a version plans an update when this is first set, which sends the headers.",
+				Validators: []validator.Int64{
+					int64validator.AlsoRequires(path.MatchRoot("headers_wo")),
 				},
 			},
 			"header_names": schema.SetAttribute{
@@ -473,6 +505,41 @@ func (r *telemetryDestinationResource) ValidateConfig(ctx context.Context, req r
 	}
 }
 
+func (r *telemetryDestinationResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+	var headersWo types.Map
+	var plannedVersion, stateVersion types.Int64
+	var headerNames types.Set
+	var plannedEndpoint, stateEndpoint types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("headers_wo"), &headersWo)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("headers_wo_version"), &plannedVersion)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("headers_wo_version"), &stateVersion)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("header_names"), &headerNames)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("endpoint_url"), &plannedEndpoint)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("endpoint_url"), &stateEndpoint)...)
+	if resp.Diagnostics.HasError() || headersWo.IsNull() || headersWo.IsUnknown() || !plannedVersion.Equal(stateVersion) {
+		return
+	}
+	if plannedEndpoint.IsUnknown() || endpointAuthority(plannedEndpoint.ValueString()) != endpointAuthority(stateEndpoint.ValueString()) {
+		return
+	}
+	configured := make([]string, 0, len(headersWo.Elements()))
+	for name := range headersWo.Elements() {
+		configured = append(configured, name)
+	}
+	stored, d := setStrings(ctx, headerNames)
+	resp.Diagnostics.Append(d...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !maps.Equal(lowerSet(configured), lowerSet(stored)) {
+		resp.Diagnostics.AddAttributeWarning(path.Root("headers_wo"), "Header names differ from the destination",
+			"The header names in headers_wo differ from the header names registered on the destination. The provider cannot read header values, so it sends headers_wo only when headers_wo_version changes. Change headers_wo_version to apply them.")
+	}
+}
+
 func (r *telemetryDestinationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan telemetryDestinationResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -484,8 +551,17 @@ func (r *telemetryDestinationResource) Create(ctx context.Context, req resource.
 	resp.Diagnostics.Append(d...)
 	headers, d := mapStrings(ctx, plan.Headers)
 	resp.Diagnostics.Append(d...)
+	var headersWo types.Map
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("headers_wo"), &headersWo)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	if !headersWo.IsNull() {
+		headers, d = mapStrings(ctx, headersWo)
+		resp.Diagnostics.Append(d...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 
 	head, tail := splitWorkspaceIDs(workspaces.ids)
@@ -541,6 +617,7 @@ func (r *telemetryDestinationResource) Create(ctx context.Context, req resource.
 		return
 	}
 	plan.telemetryDestinationModel = model
+	plan.HeadersWo = types.MapNull(types.StringType)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -599,7 +676,19 @@ func (r *telemetryDestinationResource) Update(ctx context.Context, req resource.
 		params.EndpointURL = anthropic.String(plan.EndpointURL.ValueString())
 	}
 
-	planHeaders, d := mapStrings(ctx, plan.Headers)
+	var headersWo types.Map
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("headers_wo"), &headersWo)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	headersSource := plan.Headers
+	headersChanged := !plan.Headers.Equal(state.Headers)
+	if !headersWo.IsNull() {
+		headersSource = headersWo
+		headersChanged = !plan.HeadersWoVersion.Equal(state.HeadersWoVersion)
+	}
+
+	planHeaders, d := mapStrings(ctx, headersSource)
 	resp.Diagnostics.Append(d...)
 	storedNames, d := setStrings(ctx, state.HeaderNames)
 	resp.Diagnostics.Append(d...)
@@ -607,7 +696,7 @@ func (r *telemetryDestinationResource) Update(ctx context.Context, req resource.
 		return
 	}
 	var removals []string
-	if !hostChanged {
+	if !hostChanged && (headersWo.IsNull() || headersChanged) {
 		configured := make([]string, 0, len(planHeaders))
 		for name := range planHeaders {
 			configured = append(configured, name)
@@ -619,7 +708,9 @@ func (r *telemetryDestinationResource) Update(ctx context.Context, req resource.
 			}
 		}
 	}
-	headersChanged := !plan.Headers.Equal(state.Headers) || len(removals) > 0 || (hostChanged && len(planHeaders) > 0)
+	if len(removals) > 0 || (hostChanged && len(planHeaders) > 0) {
+		headersChanged = true
+	}
 	if headersChanged {
 		body := make(map[string]any, len(planHeaders)+len(removals))
 		for name, value := range planHeaders {
@@ -706,6 +797,7 @@ func (r *telemetryDestinationResource) Update(ctx context.Context, req resource.
 		return
 	}
 	plan.telemetryDestinationModel = model
+	plan.HeadersWo = types.MapNull(types.StringType)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
