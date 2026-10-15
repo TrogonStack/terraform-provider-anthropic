@@ -512,11 +512,17 @@ func (r *telemetryDestinationResource) ModifyPlan(ctx context.Context, req resou
 	var headersWo types.Map
 	var plannedVersion, stateVersion types.Int64
 	var headerNames types.Set
+	var plannedEndpoint, stateEndpoint types.String
 	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("headers_wo"), &headersWo)...)
 	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("headers_wo_version"), &plannedVersion)...)
 	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("headers_wo_version"), &stateVersion)...)
 	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("header_names"), &headerNames)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("endpoint_url"), &plannedEndpoint)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("endpoint_url"), &stateEndpoint)...)
 	if resp.Diagnostics.HasError() || headersWo.IsNull() || headersWo.IsUnknown() || !plannedVersion.Equal(stateVersion) {
+		return
+	}
+	if plannedEndpoint.IsUnknown() || endpointAuthority(plannedEndpoint.ValueString()) != endpointAuthority(stateEndpoint.ValueString()) {
 		return
 	}
 	configured := make([]string, 0, len(headersWo.Elements()))
