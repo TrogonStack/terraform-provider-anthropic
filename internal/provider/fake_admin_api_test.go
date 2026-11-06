@@ -49,21 +49,27 @@ type fakeWorkspaceRequest struct {
 // fakeAdminAPI is an in-memory stand-in for the Admin API workspace endpoints.
 // It replaces tags wholesale on update, matching how the provider sends them.
 type fakeAdminAPI struct {
-	mu                         sync.Mutex
-	nextID                     int
-	workspaces                 map[string]*fakeWorkspace
-	defaultWorkspaceID         string
-	nextServiceAccountID       int
-	serviceAccounts            map[string]*fakeServiceAccount
-	workspaceMembers           map[string]*fakeServiceAccountMembership
-	nextAPIKeyID               int
-	apiKeys                    map[string]*fakeAPIKey
-	nextTelemetryDestinationID int
-	telemetryDestinations      map[string]*fakeTelemetryDestination
-	telemetryClock             int
-	telemetryUpdateBodies      []string
-	telemetryConflicts         bool
-	mux                        *http.ServeMux
+	mu                          sync.Mutex
+	nextID                      int
+	workspaces                  map[string]*fakeWorkspace
+	defaultWorkspaceID          string
+	nextServiceAccountID        int
+	serviceAccounts             map[string]*fakeServiceAccount
+	workspaceMembers            map[string]*fakeServiceAccountMembership
+	nextAPIKeyID                int
+	apiKeys                     map[string]*fakeAPIKey
+	nextTelemetryDestinationID  int
+	telemetryDestinations       map[string]*fakeTelemetryDestination
+	telemetryClock              int
+	telemetryUpdateBodies       []string
+	telemetryConflicts          bool
+	orgRateLimits               []fakeOrgRateLimit
+	workspaceRateLimits         map[string]map[string]map[string]int64
+	listedWorkspaceRateLimits   map[string]map[string]map[string]int64
+	rateLimitListLags           bool
+	rateLimitListServesArchived bool
+	rateLimitUpdateBodies       []string
+	mux                         *http.ServeMux
 }
 
 func newFakeAdminAPI() *fakeAdminAPI {
@@ -79,6 +85,7 @@ func newFakeAdminAPI() *fakeAdminAPI {
 	f.registerServiceAccountRoutes()
 	f.registerAPIKeyRoutes()
 	f.registerTelemetryDestinationRoutes()
+	f.registerRateLimitRoutes()
 	f.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found_error", fmt.Sprintf("%s %s is not served by the fake", r.Method, r.URL.Path))
 	})
