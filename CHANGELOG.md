@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/TrogonStack/terraform-provider-anthropic/compare/v0.4.0...v0.5.0) (2026-11-06)
+
+
+### Features
+
+* **workspace_rate_limit:** manage workspace rate limits ([#14](https://github.com/TrogonStack/terraform-provider-anthropic/issues/14)) ([95ea389](https://github.com/TrogonStack/terraform-provider-anthropic/commit/95ea38989807139e77e6e2b16238c34d63edd40b))
+
 ## [0.4.0](https://github.com/TrogonStack/terraform-provider-anthropic/compare/v0.3.0...v0.4.0) (2026-10-15)
 
 
