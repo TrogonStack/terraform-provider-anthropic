@@ -107,6 +107,7 @@ func (p *anthropicProvider) Resources(ctx context.Context) []func() resource.Res
 		newWorkspaceServiceAccount,
 		newAPIKey,
 		newTelemetryDestination,
+		newWorkspaceRateLimit,
 	}
 }
 
@@ -114,6 +115,7 @@ func (p *anthropicProvider) DataSources(ctx context.Context) []func() datasource
 	return []func() datasource.DataSource{
 		newAPIKeysDataSource,
 		newTelemetryDestinationsDataSource,
+		newRateLimitsDataSource,
 	}
 }
 

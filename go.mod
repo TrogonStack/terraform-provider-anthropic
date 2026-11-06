@@ -3,7 +3,7 @@ module github.com/TrogonStack/terraform-provider-anthropic
 go 1.26.3
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.81.0
+	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0

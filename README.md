@@ -33,6 +33,7 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 | `anthropic_service_account`           | `/v1/organizations/service_accounts`                           | `client.Organization.ServiceAccounts`            |
 | `anthropic_workspace_service_account` | `/v1/organizations/workspaces/{workspace_id}/service_accounts` | `client.Organization.Workspaces.ServiceAccounts` |
 | `anthropic_telemetry_destination`     | `/v1/organizations/telemetry_destinations`                     | `client.Beta.Organization.TelemetryDestinations` |
+| `anthropic_workspace_rate_limit`      | `/v1/organizations/workspaces/{workspace_id}/rate_limits`      | `client.Organization.Workspaces.RateLimits`      |
 
 `anthropic_service_account` and `anthropic_workspace_service_account` accept only an OAuth access token with the `org:admin` scope, through `auth_token`, `ANTHROPIC_AUTH_TOKEN`, or Workload Identity Federation. An Admin API key is rejected. Destroying `anthropic_service_account` archives the service account, which cannot be undone and is rejected while a live federation rule still targets it. Destroying `anthropic_workspace_service_account` only removes the membership.
 
@@ -42,6 +43,7 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 | ---------------------------------- | ------------------------------------------ | ------------------------------------------------ |
 | `anthropic_api_keys`               | `/v1/organizations/api_keys`               | `client.Organization.APIKeys`                    |
 | `anthropic_telemetry_destinations` | `/v1/organizations/telemetry_destinations` | `client.Beta.Organization.TelemetryDestinations` |
+| `anthropic_rate_limits`            | `/v1/organizations/rate_limits`            | `client.Organization.RateLimits`                 |
 
 ## Example
 
@@ -68,6 +70,23 @@ The Admin API has no method to delete a workspace, so destroying `anthropic_work
 The Admin API cannot create an API key or return an existing key's secret, so `anthropic_api_key` only adopts a key created in the Claude Console: apply a plain resource block with no import and Terraform fails before it reaches the API. Once imported, Terraform can rename the key and move it between `active`, `inactive` and `archived`; `expired` stays read-only. Destroying the resource only stops managing the key, since an archived key cannot be brought back. Use `anthropic_api_keys` to list keys across the organization, optionally filtered by workspace, status or creator.
 
 `anthropic_telemetry_destination` exports the spans of an organization's workspaces to an OpenTelemetry (OTLP/HTTP) collector, through the Admin API beta `telemetry-destinations-2026-08-11`. Header values such as the collector's `authorization` are write-only in the API, so Terraform keeps the configured values in state, marks them sensitive, and detects a header removed outside Terraform by its name. Destroying the resource deletes the destination. The API can disable a destination on its own after sustained delivery failures; `enabled` then reads `false`, `disabled_reason` says why, and the next apply enables it again. Use `anthropic_telemetry_destinations` to list destinations, optionally filtered by the workspaces they cover.
+
+`anthropic_workspace_rate_limit` sets a workspace's rate-limit overrides for one rate-limit group, for example a `tokens_per_day` cap on a model group. Use `anthropic_rate_limits` to find the group's `rate_limit_id` from a model name. The resource manages only the limiter types in its `limits` map. Removing a type clears its override, and destroying the resource clears every override it manages, so the workspace inherits the organization's limit again. The API enforces the lower of the workspace and organization values, and a change takes effect within about an hour.
+
+```hcl
+data "anthropic_rate_limits" "haiku" {
+  model = "claude-haiku-4-5"
+}
+
+resource "anthropic_workspace_rate_limit" "production_haiku" {
+  workspace_id  = anthropic_workspace.production.id
+  rate_limit_id = data.anthropic_rate_limits.haiku.rate_limits[0].id
+
+  limits = {
+    tokens_per_day = 5000000
+  }
+}
+```
 
 ## Contributing
 

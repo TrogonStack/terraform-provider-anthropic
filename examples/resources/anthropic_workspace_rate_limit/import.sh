@@ -1,0 +1,1 @@
+terraform import anthropic_workspace_rate_limit.production_haiku wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ/rlt_01NwFawrTvAijwqn8AjKVBPS

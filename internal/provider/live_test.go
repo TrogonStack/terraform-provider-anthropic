@@ -127,6 +127,29 @@ data "anthropic_api_keys" "test" {}
 	})
 }
 
+func TestLive_RateLimits(t *testing.T) {
+	requireLiveCredentials(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: liveProviderConfig + `
+data "anthropic_rate_limits" "test" {
+  group_type = "model_group"
+}
+`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.anthropic_rate_limits.test", "id", "rate_limits/group_type=model_group"),
+					resource.TestCheckResourceAttrSet("data.anthropic_rate_limits.test", "rate_limits.0.id"),
+					resource.TestCheckResourceAttr("data.anthropic_rate_limits.test", "rate_limits.0.group_type", "model_group"),
+					resource.TestCheckResourceAttrSet("data.anthropic_rate_limits.test", "rate_limits.0.display_name"),
+				),
+			},
+		},
+	})
+}
+
 func checkLiveWorkspaceArchived(client *anthropic.Client, workspaceId string) error {
 	if workspaceId == "" {
 		return fmt.Errorf("no workspace ID was captured to verify destruction")
