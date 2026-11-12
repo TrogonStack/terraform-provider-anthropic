@@ -5,10 +5,13 @@ subcategory: ""
 description: |-
   Invites a person to the organization by email through the Admin API.
   Creating the invite sends the invitation email. An invite cannot be edited, so
-  changing any argument withdraws the invite and sends a new one. An invite
+  changing any argument withdraws the invite and sends a new one. A change to
+  the letter case of email only updates state. An invite
   expires 21 days after it is sent; an expired or withdrawn invite is removed
   from state, so the next apply sends a new one. An accepted invite stays in
   state with status = "accepted"; manage the new member with anthropic_user.
+  A plan that changes an accepted invite fails, because the API rejects a new
+  invite for a member.
   Destroying this resource withdraws a pending invite. It leaves an accepted or
   expired invite alone, because the API cannot withdraw one, and it never
   removes a member who accepted.
@@ -21,10 +24,13 @@ description: |-
 Invites a person to the organization by email through the Admin API.
 
 Creating the invite sends the invitation email. An invite cannot be edited, so
-changing any argument withdraws the invite and sends a new one. An invite
+changing any argument withdraws the invite and sends a new one. A change to
+the letter case of `email` only updates state. An invite
 expires 21 days after it is sent; an expired or withdrawn invite is removed
 from state, so the next apply sends a new one. An accepted invite stays in
 state with `status = "accepted"`; manage the new member with `anthropic_user`.
+A plan that changes an accepted invite fails, because the API rejects a new
+invite for a member.
 
 Destroying this resource withdraws a pending invite. It leaves an accepted or
 expired invite alone, because the API cannot withdraw one, and it never
@@ -48,7 +54,7 @@ resource "anthropic_invite" "new_hire" {
 
 ### Required
 
-- `email` (String) Email of the person to invite. The API rejects an email that already has a pending invite or belongs to a member.
+- `email` (String) Email of the person to invite. The API rejects an email that already has a pending invite or belongs to a member. The API compares emails without letter case, so a case-only change keeps the invite.
 - `role` (String) Organization role the person gets on accepting. A Claude Console organization accepts `user`, `developer`, `billing` and `claude_code_user`, and a Claude Enterprise organization accepts `user` and `managed`.
 
 ### Optional

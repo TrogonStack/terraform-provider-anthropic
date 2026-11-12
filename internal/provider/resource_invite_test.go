@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -287,6 +288,70 @@ func TestAccInvite_WithdrawnOutsideTerraformIsSentAgain(t *testing.T) {
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(inviteAddress, plancheck.ResourceActionCreate)},
 				},
+			},
+		},
+	})
+}
+
+func TestAccInvite_EmailCaseChangeKeepsInvite(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	var inviteId string
+	mixedCase := inviteConfig("New.Hire@Example.com", "user", "")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: inviteConfig("new.hire@example.com", "user", ""),
+				Check:  captureInviteId(&inviteId),
+			},
+			{
+				Config: mixedCase,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(inviteAddress, plancheck.ResourceActionUpdate)},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrPtr(inviteAddress, "id", &inviteId),
+					resource.TestCheckResourceAttr(inviteAddress, "email", "New.Hire@Example.com"),
+					checkFakeInviteStatus(fake, &inviteId, "pending"),
+				),
+			},
+			{
+				Config: mixedCase,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+}
+
+func TestAccInvite_AcceptedRejectsReplacement(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	var inviteId string
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             checkFakeInviteStatus(fake, &inviteId, "accepted"),
+		Steps: []resource.TestStep{
+			{
+				Config: inviteConfig("newhire@example.com", "user", ""),
+				Check:  captureInviteId(&inviteId),
+			},
+			{
+				PreConfig: func() {
+					fake.mu.Lock()
+					defer fake.mu.Unlock()
+					fake.setInviteStatus(inviteId, "accepted")
+				},
+				Config:      inviteConfig("newhire@example.com", "developer", ""),
+				ExpectError: regexp.MustCompile(`Accepted Invite Cannot Be Replaced`),
 			},
 		},
 	})

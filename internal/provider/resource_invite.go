@@ -23,6 +23,7 @@ import (
 var (
 	_ resource.Resource                = &inviteResource{}
 	_ resource.ResourceWithImportState = &inviteResource{}
+	_ resource.ResourceWithModifyPlan  = &inviteResource{}
 )
 
 func newInvite() resource.Resource { return &inviteResource{} }
@@ -51,10 +52,13 @@ func (r *inviteResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 		MarkdownDescription: `Invites a person to the organization by email through the Admin API.
 
 Creating the invite sends the invitation email. An invite cannot be edited, so
-changing any argument withdraws the invite and sends a new one. An invite
+changing any argument withdraws the invite and sends a new one. A change to
+the letter case of ` + "`email`" + ` only updates state. An invite
 expires 21 days after it is sent; an expired or withdrawn invite is removed
 from state, so the next apply sends a new one. An accepted invite stays in
 state with ` + "`status = \"accepted\"`" + `; manage the new member with ` + "`anthropic_user`" + `.
+A plan that changes an accepted invite fails, because the API rejects a new
+invite for a member.
 
 Destroying this resource withdraws a pending invite. It leaves an accepted or
 expired invite alone, because the API cannot withdraw one, and it never
@@ -66,9 +70,13 @@ Needs ` + "`read:members`" + ` and ` + "`write:members`" + ` on a Claude Enterpr
 			"id": rsId(),
 			"email": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "Email of the person to invite. The API rejects an email that already has a pending invite or belongs to a member.",
+				MarkdownDescription: "Email of the person to invite. The API rejects an email that already has a pending invite or belongs to a member. The API compares emails without letter case, so a case-only change keeps the invite.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					stringplanmodifier.RequiresReplaceIf(
+						emailChangedIgnoringCase,
+						"Replaces the invite unless only the letter case changes.",
+						"Replaces the invite unless only the letter case changes.",
+					),
 				},
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
@@ -195,8 +203,40 @@ func (r *inviteResource) Read(ctx context.Context, req resource.ReadRequest, res
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *inviteResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError("Invites Cannot Be Updated", "An invite cannot be edited. Every argument of anthropic_invite forces a new invite.")
+func (r *inviteResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+	var plan, state inviteResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if state.Status.ValueString() != string(anthropic.OrganizationInviteStatusAccepted) {
+		return
+	}
+	replaced := !strings.EqualFold(plan.Email.ValueString(), state.Email.ValueString()) ||
+		!plan.Role.Equal(state.Role) ||
+		!plan.RBACGroupIds.Equal(state.RBACGroupIds)
+	if !replaced {
+		return
+	}
+	resp.Diagnostics.AddError("Accepted Invite Cannot Be Replaced",
+		fmt.Sprintf("Invite %s was accepted, so %s is already a member and the API rejects a new invite. Manage the member with anthropic_user and remove this invite from the configuration. Destroying an accepted invite leaves the member in place.", state.Id.ValueString(), state.Email.ValueString()))
+}
+
+// Update runs only for a case-only email change, because every other argument
+// forces a replacement.
+func (r *inviteResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, state inviteResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	state.Email = plan.Email
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *inviteResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -228,6 +268,10 @@ func (r *inviteResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 func (r *inviteResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func emailChangedIgnoringCase(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+	resp.RequiresReplace = !strings.EqualFold(req.StateValue.ValueString(), req.PlanValue.ValueString())
 }
 
 // applyInvite keeps an email that differs from the API's only in case, so a
