@@ -26,14 +26,16 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 
 A Claude Enterprise (claude.ai) organization uses a scoped key created in claude.ai > Organization settings > API, set as `api_key` or `ANTHROPIC_API_KEY`. Only the types in this table work with such a key, and each needs the scopes listed. They also accept a Claude Console Admin API key unless the table says otherwise. Every other type works only with a Claude Console organization.
 
-| Type                          | Claude Enterprise scopes                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------------------------- |
-| `anthropic_user`              | `read:members`, `write:members`, plus `write:rbac_groups` to set the `managed` role         |
-| `anthropic_invite`            | `read:members`, `write:members`, plus `write:rbac_groups` for `managed` or `rbac_group_ids` |
-| `anthropic_users`             | `read:members`                                                                              |
-| `anthropic_rbac_group`        | `read:rbac_groups`, `write:rbac_groups`                                                     |
-| `anthropic_rbac_group_member` | `read:rbac_groups`, `write:rbac_groups`                                                     |
-| `anthropic_rbac_roles`        | `read:members`                                                                              |
+| Type                               | Claude Enterprise scopes                                                                    |
+| ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| `anthropic_user`                   | `read:members`, `write:members`, plus `write:rbac_groups` to set the `managed` role         |
+| `anthropic_invite`                 | `read:members`, `write:members`, plus `write:rbac_groups` for `managed` or `rbac_group_ids` |
+| `anthropic_users`                  | `read:members`                                                                              |
+| `anthropic_rbac_group`             | `read:rbac_groups`, `write:rbac_groups`                                                     |
+| `anthropic_rbac_group_member`      | `read:rbac_groups`, `write:rbac_groups`                                                     |
+| `anthropic_rbac_roles`             | `read:members`                                                                              |
+| `anthropic_spend_limit`            | `read:spend_limits`, `write:spend_limits`. Claude Enterprise only                           |
+| `anthropic_effective_spend_limits` | `read:spend_limits`. Claude Enterprise only                                                 |
 
 ## Resources
 
@@ -49,8 +51,11 @@ A Claude Enterprise (claude.ai) organization uses a scoped key created in claude
 | `anthropic_invite`                    | `/v1/organizations/invites`                                    | `client.Organization.Invites`                    |
 | `anthropic_rbac_group`                | `/v1/organizations/rbac_groups`                                | `client.Beta.Organization.RBACGroups`            |
 | `anthropic_rbac_group_member`         | `/v1/organizations/rbac_groups/{rbac_group_id}/members`        | `client.Beta.Organization.RBACGroups.Members`    |
+| `anthropic_spend_limit`               | `/v1/organizations/spend_limits`                               | `client.Beta.Organization.SpendLimits`           |
 
 `anthropic_service_account` and `anthropic_workspace_service_account` accept only an OAuth access token with the `org:admin` scope, through `auth_token`, `ANTHROPIC_AUTH_TOKEN`, or Workload Identity Federation. An Admin API key is rejected. Destroying `anthropic_service_account` archives the service account, which cannot be undone and is rejected while a live federation rule still targets it. Destroying `anthropic_workspace_service_account` only removes the membership.
+
+`anthropic_spend_limit` and `anthropic_effective_spend_limits` work only with a Claude Enterprise organization, not with a Claude Console organization. They need an API key created in claude.ai under Organization settings > API, with the `read:spend_limits` scope for reads and the `write:spend_limits` scope for changes. Spend limit increase requests are approved or denied in claude.ai or through the API, and are not managed as resources.
 
 ## Data sources
 
@@ -61,6 +66,7 @@ A Claude Enterprise (claude.ai) organization uses a scoped key created in claude
 | `anthropic_rate_limits`            | `/v1/organizations/rate_limits`            | `client.Organization.RateLimits`                 |
 | `anthropic_users`                  | `/v1/organizations/users`                  | `client.Organization.Users`                      |
 | `anthropic_rbac_roles`             | `/v1/organizations/rbac_roles`             | `client.Beta.Organization.RBACRoles`             |
+| `anthropic_effective_spend_limits` | `/v1/organizations/spend_limits/effective` | `client.Beta.Organization.SpendLimits.Effective` |
 
 ## Example
 

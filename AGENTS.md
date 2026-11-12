@@ -112,6 +112,17 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 - `anthropic_rbac_roles` lists every role and then each role's permissions, one request per role. A permission's resource identifiers are null unless the API sends them
 - `fake_rbac_groups_test.go` registers its routes through `registerRBACGroupRoutes()`. It rejects a write to a SCIM group with 400, answers 404 for a user outside `users` and 400 for a duplicate member, lists only members still in `users`, and pages with `fakePage`. `roleDataUnavailable` makes every group return `role_ids` as null. `seedRBACUser`, `seedRBACGroup`, `seedRBACGroupMember`, `seedRBACRole`, `removeRBACGroup` and `deleteRBACGroupMember` simulate out-of-band changes
 
+### Spend limit attributes
+
+- The Spend Limits API (`client.Beta.Organization.SpendLimits`) serves Claude Enterprise organizations only. The key comes from claude.ai > Organization settings > API (`sk-ant-api01-...`) and needs `read:spend_limits` for GET and `write:spend_limits` for POST and DELETE
+- `anthropic_spend_limit` manages one per-user override. Enterprise `Set` accepts only the `user` scope, so `user_id` is Required. The Console `organization` and `workspace` scopes are an early access preview and are not modeled. Seat tier, group and organization defaults are configured in claude.ai only
+- `Set` is an upsert keyed on (scope, `period`), so Create adopts an existing override and Update overwrites it in place. `user_id` and `period` are `RequiresReplace`, and Update fails when the response carries another `id`. The `id` is the `spl_...` from the response, and import passes it through. Read rejects a limit whose scope is not `user`
+- `amount` is the API's integer decimal string in the minor unit of `currency`, validated as `^(0|[1-9][0-9]*)$`. A null `amount` is sent as `"amount":null`, which is an explicit no-limit override and not the absence of one. Read uses `JSON.Amount.Valid()`. `period` is Optional and Computed with no `OneOf`, because the docs call it an open set and support only `monthly` today. `updated_at` has no `UseStateForUnknown`, so an amount change plans it as unknown
+- Delete removes the override, so the member falls back to an inherited limit. A 404 on Read removes the resource, and Delete ignores it
+- `anthropic_effective_spend_limits` lists `Effective.ListAutoPaging` with the `user_ids` (at most 100) and `periods` (at most 3) filters. The API pages by member, so a page can hold more rows than `limit`. `actor`, `scope` and `source` flatten their unions into one object, and an attribute of another variant is null. `source` is an open set
+- Increase requests (`SpendLimits.IncreaseRequests`) are approved or denied once and are not desired state, so they are not modeled
+- `fake_spend_limits_test.go` registers its routes through `registerSpendLimitRoutes()` and keeps its state in `f.spendLimits`. It seeds four members, a `premium` seat tier default and monthly and weekly organization defaults, resolves the effective limit from the override, then the seat tier, then the organization, and pages by member. It accepts only the `user` scope and the `monthly` period, records POST bodies, and `deleteRaces` makes DELETE answer 404
+
 ### Testing
 
 Tests use an in-memory fake of the Admin API, never real API calls:
