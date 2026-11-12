@@ -119,6 +119,7 @@ func (p *anthropicProvider) Resources(ctx context.Context) []func() resource.Res
 		newInvite,
 		newRBACGroup,
 		newRBACGroupMember,
+		newSpendLimit,
 	}
 }
 
@@ -129,6 +130,7 @@ func (p *anthropicProvider) DataSources(ctx context.Context) []func() datasource
 		newRateLimitsDataSource,
 		newUsersDataSource,
 		newRBACRolesDataSource,
+		newEffectiveSpendLimitsDataSource,
 	}
 }
 
