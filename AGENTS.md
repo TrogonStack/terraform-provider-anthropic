@@ -123,6 +123,15 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 - Increase requests (`SpendLimits.IncreaseRequests`) are approved or denied once and are not desired state, so they are not modeled
 - `fake_spend_limits_test.go` registers its routes through `registerSpendLimitRoutes()` and keeps its state in `f.spendLimits`. It seeds four members, a `premium` seat tier default and monthly and weekly organization defaults, resolves the effective limit from the override, then the seat tier, then the organization, and pages by member. It accepts only the `user` scope and the `monthly` period, records POST bodies, and `deleteRaces` makes DELETE answer 404
 
+### Plugin attributes
+
+- `anthropic_plugin_installation_setting`, `anthropic_plugin_marketplace` and `anthropic_plugins` call `client.Beta.Organization.Plugins` and `PluginMarketplaces`, which send `anthropic-beta: ce-plugins-2026-09-01` themselves. The real API answers 404 without that header, and so does the fake. The API serves only Claude Enterprise organizations and takes an `sk-ant-api01-` key from claude.ai with `read:plugins` and `write:plugins` (writes do not grant reads), not an Admin API key
+- `installation_preference` and `default_installation_preference` are not a closed `OneOf`: the API returns a value it does not yet name as stored
+- The installation setting `id` is `"<plugin_id>/<target>"`, where `target` is `organization` or an `rbac_group_` ID, and both are `RequiresReplace`. The API has no per-target get, so `find` lists the plugin's settings with the `target_type` filter. Set upserts, so Create refuses a target that already holds a setting and asks for an import. Delete calls `Remove` and ignores a 404
+- `anthropic_plugin_marketplace` is import-only on the `anthropic_api_key` pattern and manages only `default_installation_preference` (Optional + Computed, `UseStateForUnknown`). A default cannot be removed once set, so Delete never calls the API. A marketplace with no default reads `not_available`
+- No resource uploads plugin versions or changes the served version, because pinning cannot be undone and a destroy could not restore the earlier state
+- `fake_plugins_test.go` registers its routes through `registerPluginRoutes()` and keeps its state in `fakeAdminAPI.plugins`. `seedPluginMarketplace`, `seedPlugin`, `seedPluginTargetRBACGroup` and `setPluginSetting` plant data; an `OwnerUserID` makes a plugin or marketplace member-owned, so the setting endpoints return 404 and the marketplace update returns 403. Lists page with `fakePage`
+
 ### Testing
 
 Tests use an in-memory fake of the Admin API, never real API calls:
