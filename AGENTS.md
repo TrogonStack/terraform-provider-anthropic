@@ -95,6 +95,14 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 - A 404 on the list removes the resource. Any other list or POST error removes it, or is ignored on Delete, once `Workspaces.Get` shows the workspace archived or missing
 - `fake_rate_limits_test.go` registers its routes through `registerRateLimitRoutes()`. It serves the API reference's example entries plus placeholder Haiku and web search groups, applies the group rules, records POST bodies in `rateLimitUpdateBodies`, and pages with `fakePage`. `rateLimitListLags` freezes `listedWorkspaceRateLimits` while `workspaceRateLimits` changes, `catchUpRateLimitList` ends the lag, and `setRateLimitOverride` simulates an out-of-band change. The list answers 404 for an archived workspace, which the API reference does not specify
 
+### User and invite attributes
+
+- Both use `client.Organization.Users` and `client.Organization.Invites`. The `client.Beta.Organization` variants are identical except for a `?beta=true` query, so they add nothing. A Claude Enterprise scoped key (`sk-ant-api01-...`, `x-api-key`) works only with these types; a Console Admin API key works too
+- `anthropic_user` is import-only like `anthropic_api_key`, through the same `ModifyPlan` check. `role` is Required and not validated client-side, because Console and Enterprise accept different roles and the API rejects the rest. Delete never calls the API, since removing a member is unrecoverable and the resource did not add them. A 404 on Read removes the resource, so the next plan fails with the import-only error
+- `userModel` and `userFromAPI` in `resource_user.go` are shared with `anthropic_users`, which filters by `email` and `roles`, sorts `roles` for a stable `id`, and pages with `ListAutoPaging` and `Limit: 1000`
+- `anthropic_invite` makes every input `RequiresReplace`, and Update only errors. `rbac_group_ids` is Optional + Computed with an empty-set default, because the API returns `[]` for none; Create omits an empty set. Read removes the resource on a 404 or a `deleted` or `expired` status, so the next apply sends a new invite; an `accepted` invite stays. Read keeps a configured email that differs from the API's only in case. Delete reads first and withdraws only a `pending` invite, because the API answers 400 for an accepted or expired one, and ignores a 404
+- `fake_users_test.go` registers its routes through `registerUserRoutes()` and keeps its state in `fakeAdminAPI.users`. It models a Claude Enterprise organization: only `user` and `managed` are assignable, administrative members are fixed, member pages hold `fakeUserPageSize` items newest first, a duplicate pending invite or an existing member's email is rejected, and a withdrawn invite reads as `deleted`. `inviteRequests` records create bodies and `removedUsers` records member removals
+
 ### Testing
 
 Tests use an in-memory fake of the Admin API, never real API calls:

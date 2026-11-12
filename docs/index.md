@@ -8,11 +8,17 @@ description: |-
   The provider authenticates through the official Anthropic Go SDK, so it accepts
   the same credentials as the SDK and the ant CLI. Setting api_key or
   auth_token overrides everything else. Otherwise the SDK resolves, in order:
-  ANTHROPIC_API_KEY, for an Admin API key (sk-ant-admin...)ANTHROPIC_AUTH_TOKEN, for an OAuth token with the org:admin scopeThe profile named by ANTHROPIC_PROFILEWorkload Identity Federation from ANTHROPIC_FEDERATION_RULE_ID,
+  ANTHROPIC_API_KEY, for an Admin API key (sk-ant-admin...) or a Claude
+  Enterprise scoped key (sk-ant-api01-...)ANTHROPIC_AUTH_TOKEN, for an OAuth token with the org:admin scopeThe profile named by ANTHROPIC_PROFILEWorkload Identity Federation from ANTHROPIC_FEDERATION_RULE_ID,
   ANTHROPIC_ORGANIZATION_ID and ANTHROPIC_IDENTITY_TOKEN_FILEThe active or default profile
   Prefer Workload Identity Federation in CI, so the pipeline never holds a
   long-lived admin secret. Service account and federation endpoints accept only
   an OAuth or federation token, never an Admin API key.
+  A Claude Enterprise (claude.ai) organization authenticates with a scoped key
+  created in claude.ai > Organization settings > API, set as api_key or
+  ANTHROPIC_API_KEY. Select the scopes each resource or data source
+  documents. Types that do not document Claude Enterprise scopes work only with a
+  Claude Console organization.
 ---
 
 # anthropic Provider
@@ -27,7 +33,8 @@ The provider authenticates through the official Anthropic Go SDK, so it accepts
 the same credentials as the SDK and the `ant` CLI. Setting `api_key` or
 `auth_token` overrides everything else. Otherwise the SDK resolves, in order:
 
-1. `ANTHROPIC_API_KEY`, for an Admin API key (`sk-ant-admin...`)
+1. `ANTHROPIC_API_KEY`, for an Admin API key (`sk-ant-admin...`) or a Claude
+   Enterprise scoped key (`sk-ant-api01-...`)
 2. `ANTHROPIC_AUTH_TOKEN`, for an OAuth token with the `org:admin` scope
 3. The profile named by `ANTHROPIC_PROFILE`
 4. Workload Identity Federation from `ANTHROPIC_FEDERATION_RULE_ID`,
@@ -37,6 +44,12 @@ the same credentials as the SDK and the `ant` CLI. Setting `api_key` or
 Prefer Workload Identity Federation in CI, so the pipeline never holds a
 long-lived admin secret. Service account and federation endpoints accept only
 an OAuth or federation token, never an Admin API key.
+
+A Claude Enterprise (claude.ai) organization authenticates with a scoped key
+created in claude.ai > Organization settings > API, set as `api_key` or
+`ANTHROPIC_API_KEY`. Select the scopes each resource or data source
+documents. Types that do not document Claude Enterprise scopes work only with a
+Claude Console organization.
 
 ## Example Usage
 
@@ -64,6 +77,6 @@ variable "anthropic_auth_token" {
 
 ### Optional
 
-- `api_key` (String, Sensitive) An Admin API key, e.g. `sk-ant-admin...`. Conflicts with `auth_token`.
+- `api_key` (String, Sensitive) An Admin API key, e.g. `sk-ant-admin...`, or a Claude Enterprise scoped key, e.g. `sk-ant-api01-...`. Conflicts with `auth_token`.
 - `auth_token` (String, Sensitive) An OAuth bearer token with the `org:admin` scope. Conflicts with `api_key`.
 - `base_url` (String) The Anthropic API base URL. Falls back to `ANTHROPIC_BASE_URL`, then `https://api.anthropic.com`.

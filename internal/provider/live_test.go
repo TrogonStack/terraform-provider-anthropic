@@ -127,6 +127,22 @@ data "anthropic_api_keys" "test" {}
 	})
 }
 
+func TestLive_Users(t *testing.T) {
+	requireLiveCredentials(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: liveProviderConfig + `
+data "anthropic_users" "test" {}
+`,
+				Check: resource.TestCheckResourceAttrSet("data.anthropic_users.test", "id"),
+			},
+		},
+	})
+}
+
 func TestLive_RateLimits(t *testing.T) {
 	requireLiveCredentials(t)
 
