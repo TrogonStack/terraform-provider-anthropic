@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/TrogonStack/terraform-provider-anthropic/compare/v0.5.0...v0.6.0) (2026-11-12)
+
+
+### Features
+
+* **plugin:** manage plugin installation settings and marketplace defaults ([#20](https://github.com/TrogonStack/terraform-provider-anthropic/issues/20)) ([eea704a](https://github.com/TrogonStack/terraform-provider-anthropic/commit/eea704a55523cbc6750c3e16cac7a55a8b79eebd))
+* **rbac_group:** manage groups and their members ([#18](https://github.com/TrogonStack/terraform-provider-anthropic/issues/18)) ([2a84b0f](https://github.com/TrogonStack/terraform-provider-anthropic/commit/2a84b0f7ef179dc872ab623ed10ec7a5fc5ba1c7))
+* **spend_limit:** manage Claude Enterprise spend limits ([#19](https://github.com/TrogonStack/terraform-provider-anthropic/issues/19)) ([b9e57ae](https://github.com/TrogonStack/terraform-provider-anthropic/commit/b9e57ae6063b2a64f50b646a2f8d690aa2bb0d1b))
+* **user:** manage organization members and invites ([#17](https://github.com/TrogonStack/terraform-provider-anthropic/issues/17)) ([5abeedf](https://github.com/TrogonStack/terraform-provider-anthropic/commit/5abeedf49682e908463730e66970ed56ad000c5e))
+* **workspace_member:** manage user workspace memberships ([#21](https://github.com/TrogonStack/terraform-provider-anthropic/issues/21)) ([e7c8a36](https://github.com/TrogonStack/terraform-provider-anthropic/commit/e7c8a360bc8c4f922e88796389038604b9b2e91e))
+
 ## [0.5.0](https://github.com/TrogonStack/terraform-provider-anthropic/compare/v0.4.0...v0.5.0) (2026-11-06)
 
 
