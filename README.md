@@ -14,15 +14,23 @@ provider "anthropic" {
 }
 ```
 
-| Attribute    | Environment variable   | Description                                                        |
-| ------------ | ---------------------- | ------------------------------------------------------------------ |
-| `api_key`    | `ANTHROPIC_API_KEY`    | Admin API key (`sk-ant-admin...`). Optional, sensitive.            |
-| `auth_token` | `ANTHROPIC_AUTH_TOKEN` | OAuth bearer token with the `org:admin` scope. Optional, sensitive. |
-| `base_url`   | `ANTHROPIC_BASE_URL`   | API base URL. Defaults to `https://api.anthropic.com`.             |
+| Attribute    | Environment variable   | Description                                                                                                  |
+| ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `api_key`    | `ANTHROPIC_API_KEY`    | Admin API key (`sk-ant-admin...`) or Claude Enterprise scoped key (`sk-ant-api01-...`). Optional, sensitive. |
+| `auth_token` | `ANTHROPIC_AUTH_TOKEN` | OAuth bearer token with the `org:admin` scope. Optional, sensitive.                                          |
+| `base_url`   | `ANTHROPIC_BASE_URL`   | API base URL. Defaults to `https://api.anthropic.com`.                                                       |
 
 The provider is built on the official [Anthropic Go SDK](https://github.com/anthropics/anthropic-sdk-go) and accepts the same credentials as the SDK and the `ant` CLI. Set at most one of `api_key` and `auth_token`; a configured one is the only credential sent, regardless of the environment. When neither is set, the SDK resolves `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, the profile named by `ANTHROPIC_PROFILE`, Workload Identity Federation (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN_FILE`), then the active profile.
 
 Prefer Workload Identity Federation in CI, so the pipeline never holds a long-lived admin secret. Service account and federation endpoints accept only an OAuth or federation token, never an Admin API key.
+
+A Claude Enterprise (claude.ai) organization uses a scoped key created in claude.ai > Organization settings > API, set as `api_key` or `ANTHROPIC_API_KEY`. Only the types in this table work with such a key, and each needs the scopes listed. They also accept a Claude Console Admin API key unless the table says otherwise. Every other type works only with a Claude Console organization.
+
+| Type               | Claude Enterprise scopes                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `anthropic_user`   | `read:members`, `write:members`, plus `write:rbac_groups` to set the `managed` role         |
+| `anthropic_invite` | `read:members`, `write:members`, plus `write:rbac_groups` for `managed` or `rbac_group_ids` |
+| `anthropic_users`  | `read:members`                                                                              |
 
 ## Resources
 
@@ -34,6 +42,8 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 | `anthropic_workspace_service_account` | `/v1/organizations/workspaces/{workspace_id}/service_accounts` | `client.Organization.Workspaces.ServiceAccounts` |
 | `anthropic_telemetry_destination`     | `/v1/organizations/telemetry_destinations`                     | `client.Beta.Organization.TelemetryDestinations` |
 | `anthropic_workspace_rate_limit`      | `/v1/organizations/workspaces/{workspace_id}/rate_limits`      | `client.Organization.Workspaces.RateLimits`      |
+| `anthropic_user`                      | `/v1/organizations/users`                                      | `client.Organization.Users`                      |
+| `anthropic_invite`                    | `/v1/organizations/invites`                                    | `client.Organization.Invites`                    |
 
 `anthropic_service_account` and `anthropic_workspace_service_account` accept only an OAuth access token with the `org:admin` scope, through `auth_token`, `ANTHROPIC_AUTH_TOKEN`, or Workload Identity Federation. An Admin API key is rejected. Destroying `anthropic_service_account` archives the service account, which cannot be undone and is rejected while a live federation rule still targets it. Destroying `anthropic_workspace_service_account` only removes the membership.
 
@@ -44,6 +54,7 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 | `anthropic_api_keys`               | `/v1/organizations/api_keys`               | `client.Organization.APIKeys`                    |
 | `anthropic_telemetry_destinations` | `/v1/organizations/telemetry_destinations` | `client.Beta.Organization.TelemetryDestinations` |
 | `anthropic_rate_limits`            | `/v1/organizations/rate_limits`            | `client.Organization.RateLimits`                 |
+| `anthropic_users`                  | `/v1/organizations/users`                  | `client.Organization.Users`                      |
 
 ## Example
 
@@ -85,6 +96,18 @@ resource "anthropic_workspace_rate_limit" "production_haiku" {
   limits = {
     tokens_per_day = 5000000
   }
+}
+```
+
+The Admin API cannot add a member directly, only invite one, so `anthropic_user` only adopts an existing member: import it, and Terraform manages the member's `role`. Apply a plain resource block with no import and Terraform fails before it reaches the API. Destroying the resource only stops managing the member. It never removes them from the organization, because a removal cannot be undone and the resource did not add them. Members who hold `owner`, `membership_admin` or `primary_owner` in a Claude Enterprise organization cannot be changed through the API. Use `anthropic_users` to look up members by email or role, for example to find the ID to import.
+
+`anthropic_invite` sends an invitation email. An invite cannot be edited, so changing its email, role or groups withdraws it and sends a new one. An expired or withdrawn invite leaves state, so the next apply sends it again. An accepted invite stays in state. Destroying the resource withdraws a pending invite and leaves an accepted or expired one alone.
+
+```hcl
+resource "anthropic_invite" "new_hire" {
+  email          = "newhire@example.com"
+  role           = "managed"
+  rbac_group_ids = ["rbac_group_01UvWxYzAbCdEfGhIjKlMn"]
 }
 ```
 

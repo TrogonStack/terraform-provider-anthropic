@@ -1,0 +1,1 @@
+terraform import anthropic_invite.new_hire invite_01QrStUvWxYzAbCdEfGhIj
