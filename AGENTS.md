@@ -132,6 +132,14 @@ The Admin API has no workspace delete. `anthropic_workspace` Delete reads the wo
 - No resource uploads plugin versions or changes the served version, because pinning cannot be undone and a destroy could not restore the earlier state
 - `fake_plugins_test.go` registers its routes through `registerPluginRoutes()` and keeps its state in `fakeAdminAPI.plugins`. `seedPluginMarketplace`, `seedPlugin`, `seedPluginTargetRBACGroup` and `setPluginSetting` plant data; an `OwnerUserID` makes a plugin or marketplace member-owned, so the setting endpoints return 404 and the marketplace update returns 403. Lists page with `fakePage`
 
+### Workspace member attributes
+
+- `anthropic_workspace_member`'s `id` is `"<workspace_id>/<user_id>"`; both are `RequiresReplace`, `workspace_role` updates in place, and `ImportState` splits on `/`
+- `workspace_role` is a closed `OneOf` of the four `NoBillingWorkspaceRole` values. `Add` cannot send `workspace_billing`, and the workspaces guide says it is never manually assigned, although the SDK's `Update` type accepts it
+- `WorkspaceMember` has no `implicit` flag, unlike `ServiceAccountWorkspaceMember`, and the docs say organization users and developers are added to each workspace explicitly, so the default workspace gets no special case. Organization admins and billing members inherit `workspace_admin` and `workspace_billing` in every workspace and cannot be removed, so Create refuses any membership `Get` already returns rather than adopting it
+- `Read` and `Delete` use the same secondary `Workspaces.Get` as `anthropic_workspace_service_account` for an archived workspace's 400
+- `fake_workspace_members_test.go` registers its routes through `registerWorkspaceMemberRoutes()` and keeps user memberships in `workspaceUsers`, apart from the service account `workspaceMembers` map. `seedOrganizationUser(role)` creates a user; an `admin` or `billing` user gets the inherited role from `Get` and `List`, and `Update` and `Remove` reject it. `TestLive_WorkspaceMember` runs only when `ANTHROPIC_LIVE_USER_ID` names an organization user or developer
+
 ### Testing
 
 Tests use an in-memory fake of the Admin API, never real API calls:

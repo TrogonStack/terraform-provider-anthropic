@@ -332,3 +332,58 @@ func checkLiveTelemetryDestinationDeleted(client *anthropic.Client, destinationI
 	}
 	return fmt.Errorf("expected telemetry destination %s to be deleted, but it still exists", destinationId)
 }
+
+func TestLive_WorkspaceMember(t *testing.T) {
+	requireLiveCredentials(t)
+	userId := os.Getenv("ANTHROPIC_LIVE_USER_ID")
+	if userId == "" {
+		t.Skip("set ANTHROPIC_LIVE_USER_ID to the ID of an organization user or developer to run the workspace member live test")
+	}
+
+	name := "tf-live-" + acctest.RandString(8)
+	config := func(role string) string {
+		return liveProviderConfig + fmt.Sprintf(`
+resource "anthropic_workspace" "test" {
+  name = %q
+}
+
+resource "anthropic_workspace_member" "test" {
+  workspace_id   = anthropic_workspace.test.id
+  user_id        = %q
+  workspace_role = %q
+}
+
+data "anthropic_workspace_members" "test" {
+  workspace_id = anthropic_workspace_member.test.workspace_id
+}
+`, name, userId, role)
+	}
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config("workspace_user"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("anthropic_workspace_member.test", "workspace_role", "workspace_user"),
+					resource.TestCheckTypeSetElemNestedAttrs("data.anthropic_workspace_members.test", "members.*", map[string]string{
+						"user_id":        userId,
+						"workspace_role": "workspace_user",
+					}),
+				),
+			},
+			{
+				Config: config("workspace_developer"),
+				Check:  resource.TestCheckResourceAttr("anthropic_workspace_member.test", "workspace_role", "workspace_developer"),
+			},
+			{
+				ResourceName: "anthropic_workspace_member.test",
+				ImportState:  true,
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					return s.RootModule().Resources["anthropic_workspace_member.test"].Primary.ID, nil
+				},
+				ImportStateVerify: true,
+			},
+		},
+	})
+}

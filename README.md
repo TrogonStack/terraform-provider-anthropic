@@ -57,6 +57,7 @@ A Claude Enterprise (claude.ai) organization uses a scoped key created in claude
 | `anthropic_spend_limit`                 | `/v1/organizations/spend_limits`                               | `client.Beta.Organization.SpendLimits`                  |
 | `anthropic_plugin_installation_setting` | `/v1/organizations/plugins/{plugin_id}/installation_settings`  | `client.Beta.Organization.Plugins.InstallationSettings` |
 | `anthropic_plugin_marketplace`          | `/v1/organizations/plugin_marketplaces`                        | `client.Beta.Organization.PluginMarketplaces`           |
+| `anthropic_workspace_member`            | `/v1/organizations/workspaces/{workspace_id}/members`          | `client.Organization.Workspaces.Members`                |
 
 `anthropic_service_account` and `anthropic_workspace_service_account` accept only an OAuth access token with the `org:admin` scope, through `auth_token`, `ANTHROPIC_AUTH_TOKEN`, or Workload Identity Federation. An Admin API key is rejected. Destroying `anthropic_service_account` archives the service account, which cannot be undone and is rejected while a live federation rule still targets it. Destroying `anthropic_workspace_service_account` only removes the membership.
 
@@ -64,15 +65,16 @@ A Claude Enterprise (claude.ai) organization uses a scoped key created in claude
 
 ## Data sources
 
-| Type                               | API                                        | SDK                                              |
-| ---------------------------------- | ------------------------------------------ | ------------------------------------------------ |
-| `anthropic_api_keys`               | `/v1/organizations/api_keys`               | `client.Organization.APIKeys`                    |
-| `anthropic_telemetry_destinations` | `/v1/organizations/telemetry_destinations` | `client.Beta.Organization.TelemetryDestinations` |
-| `anthropic_rate_limits`            | `/v1/organizations/rate_limits`            | `client.Organization.RateLimits`                 |
-| `anthropic_users`                  | `/v1/organizations/users`                  | `client.Organization.Users`                      |
-| `anthropic_rbac_roles`             | `/v1/organizations/rbac_roles`             | `client.Beta.Organization.RBACRoles`             |
-| `anthropic_effective_spend_limits` | `/v1/organizations/spend_limits/effective` | `client.Beta.Organization.SpendLimits.Effective` |
-| `anthropic_plugins`                | `/v1/organizations/plugins`                | `client.Beta.Organization.Plugins`               |
+| Type                               | API                                                   | SDK                                              |
+| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| `anthropic_api_keys`               | `/v1/organizations/api_keys`                          | `client.Organization.APIKeys`                    |
+| `anthropic_telemetry_destinations` | `/v1/organizations/telemetry_destinations`            | `client.Beta.Organization.TelemetryDestinations` |
+| `anthropic_rate_limits`            | `/v1/organizations/rate_limits`                       | `client.Organization.RateLimits`                 |
+| `anthropic_users`                  | `/v1/organizations/users`                             | `client.Organization.Users`                      |
+| `anthropic_rbac_roles`             | `/v1/organizations/rbac_roles`                        | `client.Beta.Organization.RBACRoles`             |
+| `anthropic_effective_spend_limits` | `/v1/organizations/spend_limits/effective`            | `client.Beta.Organization.SpendLimits.Effective` |
+| `anthropic_plugins`                | `/v1/organizations/plugins`                           | `client.Beta.Organization.Plugins`               |
+| `anthropic_workspace_members`      | `/v1/organizations/workspaces/{workspace_id}/members` | `client.Organization.Workspaces.Members`         |
 
 ## Example
 
@@ -161,6 +163,8 @@ resource "anthropic_plugin_installation_setting" "linter_pilot" {
   installation_preference = "required"
 }
 ```
+
+`anthropic_workspace_member` grants an organization user a role in a workspace. `workspace_role` changes in place, and changing `workspace_id` or `user_id` replaces the membership. Organization admins and billing members inherit `workspace_admin` and `workspace_billing` in every workspace from their organization role, so this resource refuses to manage them, and `workspace_billing` cannot be assigned. Destroying the resource removes the user from the workspace, not from the organization. Use `anthropic_workspace_members` to list a workspace's members.
 
 ## Contributing
 
