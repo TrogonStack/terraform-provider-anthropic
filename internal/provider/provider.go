@@ -122,6 +122,7 @@ func (p *anthropicProvider) Resources(ctx context.Context) []func() resource.Res
 		newSpendLimit,
 		newPluginInstallationSetting,
 		newPluginMarketplace,
+		newWorkspaceMember,
 	}
 }
 
@@ -134,6 +135,7 @@ func (p *anthropicProvider) DataSources(ctx context.Context) []func() datasource
 		newRBACRolesDataSource,
 		newEffectiveSpendLimitsDataSource,
 		newPluginsDataSource,
+		newWorkspaceMembersDataSource,
 	}
 }
 
