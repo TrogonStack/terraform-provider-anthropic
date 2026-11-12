@@ -26,32 +26,37 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 
 A Claude Enterprise (claude.ai) organization uses a scoped key created in claude.ai > Organization settings > API, set as `api_key` or `ANTHROPIC_API_KEY`. Only the types in this table work with such a key, and each needs the scopes listed. They also accept a Claude Console Admin API key unless the table says otherwise. Every other type works only with a Claude Console organization.
 
-| Type                               | Claude Enterprise scopes                                                                    |
-| ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| `anthropic_user`                   | `read:members`, `write:members`, plus `write:rbac_groups` to set the `managed` role         |
-| `anthropic_invite`                 | `read:members`, `write:members`, plus `write:rbac_groups` for `managed` or `rbac_group_ids` |
-| `anthropic_users`                  | `read:members`                                                                              |
-| `anthropic_rbac_group`             | `read:rbac_groups`, `write:rbac_groups`                                                     |
-| `anthropic_rbac_group_member`      | `read:rbac_groups`, `write:rbac_groups`                                                     |
-| `anthropic_rbac_roles`             | `read:members`                                                                              |
-| `anthropic_spend_limit`            | `read:spend_limits`, `write:spend_limits`. Claude Enterprise only                           |
-| `anthropic_effective_spend_limits` | `read:spend_limits`. Claude Enterprise only                                                 |
+| Type                                    | Claude Enterprise scopes                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `anthropic_user`                        | `read:members`, `write:members`, plus `write:rbac_groups` to set the `managed` role         |
+| `anthropic_invite`                      | `read:members`, `write:members`, plus `write:rbac_groups` for `managed` or `rbac_group_ids` |
+| `anthropic_users`                       | `read:members`                                                                              |
+| `anthropic_rbac_group`                  | `read:rbac_groups`, `write:rbac_groups`                                                     |
+| `anthropic_rbac_group_member`           | `read:rbac_groups`, `write:rbac_groups`                                                     |
+| `anthropic_rbac_roles`                  | `read:members`                                                                              |
+| `anthropic_spend_limit`                 | `read:spend_limits`, `write:spend_limits`. Claude Enterprise only                           |
+| `anthropic_effective_spend_limits`      | `read:spend_limits`. Claude Enterprise only                                                 |
+| `anthropic_plugin_installation_setting` | `read:plugins`, `write:plugins`. Claude Enterprise only, beta                               |
+| `anthropic_plugin_marketplace`          | `read:plugins`, `write:plugins`. Claude Enterprise only, beta                               |
+| `anthropic_plugins`                     | `read:plugins`. Claude Enterprise only, beta                                                |
 
 ## Resources
 
-| Type                                  | API                                                            | SDK                                              |
-| ------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------ |
-| `anthropic_workspace`                 | `/v1/organizations/workspaces`                                 | `client.Organization.Workspaces`                 |
-| `anthropic_api_key`                   | `/v1/organizations/api_keys`                                   | `client.Organization.APIKeys`                    |
-| `anthropic_service_account`           | `/v1/organizations/service_accounts`                           | `client.Organization.ServiceAccounts`            |
-| `anthropic_workspace_service_account` | `/v1/organizations/workspaces/{workspace_id}/service_accounts` | `client.Organization.Workspaces.ServiceAccounts` |
-| `anthropic_telemetry_destination`     | `/v1/organizations/telemetry_destinations`                     | `client.Beta.Organization.TelemetryDestinations` |
-| `anthropic_workspace_rate_limit`      | `/v1/organizations/workspaces/{workspace_id}/rate_limits`      | `client.Organization.Workspaces.RateLimits`      |
-| `anthropic_user`                      | `/v1/organizations/users`                                      | `client.Organization.Users`                      |
-| `anthropic_invite`                    | `/v1/organizations/invites`                                    | `client.Organization.Invites`                    |
-| `anthropic_rbac_group`                | `/v1/organizations/rbac_groups`                                | `client.Beta.Organization.RBACGroups`            |
-| `anthropic_rbac_group_member`         | `/v1/organizations/rbac_groups/{rbac_group_id}/members`        | `client.Beta.Organization.RBACGroups.Members`    |
-| `anthropic_spend_limit`               | `/v1/organizations/spend_limits`                               | `client.Beta.Organization.SpendLimits`           |
+| Type                                    | API                                                            | SDK                                                     |
+| --------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------- |
+| `anthropic_workspace`                   | `/v1/organizations/workspaces`                                 | `client.Organization.Workspaces`                        |
+| `anthropic_api_key`                     | `/v1/organizations/api_keys`                                   | `client.Organization.APIKeys`                           |
+| `anthropic_service_account`             | `/v1/organizations/service_accounts`                           | `client.Organization.ServiceAccounts`                   |
+| `anthropic_workspace_service_account`   | `/v1/organizations/workspaces/{workspace_id}/service_accounts` | `client.Organization.Workspaces.ServiceAccounts`        |
+| `anthropic_telemetry_destination`       | `/v1/organizations/telemetry_destinations`                     | `client.Beta.Organization.TelemetryDestinations`        |
+| `anthropic_workspace_rate_limit`        | `/v1/organizations/workspaces/{workspace_id}/rate_limits`      | `client.Organization.Workspaces.RateLimits`             |
+| `anthropic_user`                        | `/v1/organizations/users`                                      | `client.Organization.Users`                             |
+| `anthropic_invite`                      | `/v1/organizations/invites`                                    | `client.Organization.Invites`                           |
+| `anthropic_rbac_group`                  | `/v1/organizations/rbac_groups`                                | `client.Beta.Organization.RBACGroups`                   |
+| `anthropic_rbac_group_member`           | `/v1/organizations/rbac_groups/{rbac_group_id}/members`        | `client.Beta.Organization.RBACGroups.Members`           |
+| `anthropic_spend_limit`                 | `/v1/organizations/spend_limits`                               | `client.Beta.Organization.SpendLimits`                  |
+| `anthropic_plugin_installation_setting` | `/v1/organizations/plugins/{plugin_id}/installation_settings`  | `client.Beta.Organization.Plugins.InstallationSettings` |
+| `anthropic_plugin_marketplace`          | `/v1/organizations/plugin_marketplaces`                        | `client.Beta.Organization.PluginMarketplaces`           |
 
 `anthropic_service_account` and `anthropic_workspace_service_account` accept only an OAuth access token with the `org:admin` scope, through `auth_token`, `ANTHROPIC_AUTH_TOKEN`, or Workload Identity Federation. An Admin API key is rejected. Destroying `anthropic_service_account` archives the service account, which cannot be undone and is rejected while a live federation rule still targets it. Destroying `anthropic_workspace_service_account` only removes the membership.
 
@@ -67,6 +72,7 @@ A Claude Enterprise (claude.ai) organization uses a scoped key created in claude
 | `anthropic_users`                  | `/v1/organizations/users`                  | `client.Organization.Users`                      |
 | `anthropic_rbac_roles`             | `/v1/organizations/rbac_roles`             | `client.Beta.Organization.RBACRoles`             |
 | `anthropic_effective_spend_limits` | `/v1/organizations/spend_limits/effective` | `client.Beta.Organization.SpendLimits.Effective` |
+| `anthropic_plugins`                | `/v1/organizations/plugins`                | `client.Beta.Organization.Plugins`               |
 
 ## Example
 
@@ -135,6 +141,24 @@ resource "anthropic_rbac_group" "engineering" {
 resource "anthropic_rbac_group_member" "alice" {
   rbac_group_id = anthropic_rbac_group.engineering.id
   user_id       = "user_01WCz1FkmYMm4gnmykNKUu3Q"
+}
+```
+
+`anthropic_plugin_installation_setting`, `anthropic_plugin_marketplace` and `anthropic_plugins` use the Plugins API beta `ce-plugins-2026-09-01`, which only Claude Enterprise organizations have, and not with HIPAA readiness enabled. It does not accept an Admin API key. Create a key in claude.ai under Organization settings > API (`sk-ant-api01-...`) with the `read:plugins` and `write:plugins` scopes, since `write:plugins` does not grant reads, and give it to a provider alias. `anthropic_plugins` needs only `read:plugins`.
+
+`anthropic_plugin_installation_setting` sets who may use an organization-owned plugin: the whole organization (`target = "organization"`) or one group (`target = "rbac_group_..."`). A group's setting replaces the organization-wide value for its members. Creating the resource refuses to take over a setting the target already holds, so import that setting instead. Destroying it removes the setting, and the plugin falls back to its marketplace's default or the organization-wide value. `anthropic_plugin_marketplace` only adopts a marketplace created in claude.ai, to manage its default installation setting. Apply it without an import and Terraform fails before it reaches the API. Destroying it only forgets the marketplace, because the API cannot delete a marketplace or remove a default once set.
+
+```hcl
+provider "anthropic" {
+  alias   = "plugins"
+  api_key = var.anthropic_plugins_api_key
+}
+
+resource "anthropic_plugin_installation_setting" "linter_pilot" {
+  provider                = anthropic.plugins
+  plugin_id               = "plugin_01Hq3vX8kZcN2mB7pR4tY9wL"
+  target                  = "rbac_group_01KwZpXvRtYqNmLs8cDf3HgJ"
+  installation_preference = "required"
 }
 ```
 

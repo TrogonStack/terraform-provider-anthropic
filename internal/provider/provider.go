@@ -120,6 +120,8 @@ func (p *anthropicProvider) Resources(ctx context.Context) []func() resource.Res
 		newRBACGroup,
 		newRBACGroupMember,
 		newSpendLimit,
+		newPluginInstallationSetting,
+		newPluginMarketplace,
 	}
 }
 
@@ -131,6 +133,7 @@ func (p *anthropicProvider) DataSources(ctx context.Context) []func() datasource
 		newUsersDataSource,
 		newRBACRolesDataSource,
 		newEffectiveSpendLimitsDataSource,
+		newPluginsDataSource,
 	}
 }
 
