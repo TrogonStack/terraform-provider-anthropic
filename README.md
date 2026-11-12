@@ -26,11 +26,14 @@ Prefer Workload Identity Federation in CI, so the pipeline never holds a long-li
 
 A Claude Enterprise (claude.ai) organization uses a scoped key created in claude.ai > Organization settings > API, set as `api_key` or `ANTHROPIC_API_KEY`. Only the types in this table work with such a key, and each needs the scopes listed. They also accept a Claude Console Admin API key unless the table says otherwise. Every other type works only with a Claude Console organization.
 
-| Type               | Claude Enterprise scopes                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------- |
-| `anthropic_user`   | `read:members`, `write:members`, plus `write:rbac_groups` to set the `managed` role         |
-| `anthropic_invite` | `read:members`, `write:members`, plus `write:rbac_groups` for `managed` or `rbac_group_ids` |
-| `anthropic_users`  | `read:members`                                                                              |
+| Type                          | Claude Enterprise scopes                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| `anthropic_user`              | `read:members`, `write:members`, plus `write:rbac_groups` to set the `managed` role         |
+| `anthropic_invite`            | `read:members`, `write:members`, plus `write:rbac_groups` for `managed` or `rbac_group_ids` |
+| `anthropic_users`             | `read:members`                                                                              |
+| `anthropic_rbac_group`        | `read:rbac_groups`, `write:rbac_groups`                                                     |
+| `anthropic_rbac_group_member` | `read:rbac_groups`, `write:rbac_groups`                                                     |
+| `anthropic_rbac_roles`        | `read:members`                                                                              |
 
 ## Resources
 
@@ -44,6 +47,8 @@ A Claude Enterprise (claude.ai) organization uses a scoped key created in claude
 | `anthropic_workspace_rate_limit`      | `/v1/organizations/workspaces/{workspace_id}/rate_limits`      | `client.Organization.Workspaces.RateLimits`      |
 | `anthropic_user`                      | `/v1/organizations/users`                                      | `client.Organization.Users`                      |
 | `anthropic_invite`                    | `/v1/organizations/invites`                                    | `client.Organization.Invites`                    |
+| `anthropic_rbac_group`                | `/v1/organizations/rbac_groups`                                | `client.Beta.Organization.RBACGroups`            |
+| `anthropic_rbac_group_member`         | `/v1/organizations/rbac_groups/{rbac_group_id}/members`        | `client.Beta.Organization.RBACGroups.Members`    |
 
 `anthropic_service_account` and `anthropic_workspace_service_account` accept only an OAuth access token with the `org:admin` scope, through `auth_token`, `ANTHROPIC_AUTH_TOKEN`, or Workload Identity Federation. An Admin API key is rejected. Destroying `anthropic_service_account` archives the service account, which cannot be undone and is rejected while a live federation rule still targets it. Destroying `anthropic_workspace_service_account` only removes the membership.
 
@@ -55,6 +60,7 @@ A Claude Enterprise (claude.ai) organization uses a scoped key created in claude
 | `anthropic_telemetry_destinations` | `/v1/organizations/telemetry_destinations` | `client.Beta.Organization.TelemetryDestinations` |
 | `anthropic_rate_limits`            | `/v1/organizations/rate_limits`            | `client.Organization.RateLimits`                 |
 | `anthropic_users`                  | `/v1/organizations/users`                  | `client.Organization.Users`                      |
+| `anthropic_rbac_roles`             | `/v1/organizations/rbac_roles`             | `client.Beta.Organization.RBACRoles`             |
 
 ## Example
 
@@ -108,6 +114,21 @@ resource "anthropic_invite" "new_hire" {
   email          = "newhire@example.com"
   role           = "managed"
   rbac_group_ids = ["rbac_group_01UvWxYzAbCdEfGhIjKlMn"]
+}
+```
+
+`anthropic_rbac_group`, `anthropic_rbac_group_member` and `anthropic_rbac_roles` manage the RBAC groups of a Claude Enterprise organization. They need a key created in claude.ai > Organization settings > API for all linked organizations, set as `api_key`. The groups need the `read:rbac_groups` and `write:rbac_groups` scopes, and `anthropic_rbac_roles` needs `read:members`. Custom roles are attached to a group in claude.ai, so `role_ids` is read-only. A group provisioned by SCIM can be imported and read, but Terraform fails a plan that renames or deletes it, or adds or removes one of its members. Stop managing one with a `removed` block whose `lifecycle` sets `destroy = false`.
+
+```hcl
+data "anthropic_rbac_roles" "all" {}
+
+resource "anthropic_rbac_group" "engineering" {
+  name = "Engineering"
+}
+
+resource "anthropic_rbac_group_member" "alice" {
+  rbac_group_id = anthropic_rbac_group.engineering.id
+  user_id       = "user_01WCz1FkmYMm4gnmykNKUu3Q"
 }
 ```
 

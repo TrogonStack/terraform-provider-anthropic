@@ -117,6 +117,8 @@ func (p *anthropicProvider) Resources(ctx context.Context) []func() resource.Res
 		newWorkspaceRateLimit,
 		newUser,
 		newInvite,
+		newRBACGroup,
+		newRBACGroupMember,
 	}
 }
 
@@ -126,6 +128,7 @@ func (p *anthropicProvider) DataSources(ctx context.Context) []func() datasource
 		newTelemetryDestinationsDataSource,
 		newRateLimitsDataSource,
 		newUsersDataSource,
+		newRBACRolesDataSource,
 	}
 }
 

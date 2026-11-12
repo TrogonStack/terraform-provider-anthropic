@@ -70,6 +70,7 @@ type fakeAdminAPI struct {
 	rateLimitListServesArchived bool
 	rateLimitUpdateBodies       []string
 	users                       *fakeUsers
+	rbac                        *fakeRBAC
 	mux                         *http.ServeMux
 }
 
@@ -88,6 +89,7 @@ func newFakeAdminAPI() *fakeAdminAPI {
 	f.registerTelemetryDestinationRoutes()
 	f.registerRateLimitRoutes()
 	f.registerUserRoutes()
+	f.registerRBACGroupRoutes()
 	f.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found_error", fmt.Sprintf("%s %s is not served by the fake", r.Method, r.URL.Path))
 	})
