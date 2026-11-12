@@ -51,7 +51,9 @@ in every workspace through their organization role; that membership cannot be
 added, changed, or removed here, so change the organization role instead.
 
 Creating this resource refuses to take over a membership that already exists,
-including an inherited one; import an explicit membership instead. Destroying
+including an inherited one; import an explicit membership instead. An
+inherited membership cannot be imported, and a user promoted to organization
+admin or billing outside Terraform is removed from state. Destroying
 this resource removes the user from the workspace only, never from the
 organization. A membership removed outside Terraform, or a workspace archived
 outside Terraform, is removed from state and created again on the next apply.`,
@@ -159,6 +161,15 @@ func (r *workspaceMemberResource) Read(ctx context.Context, req resource.ReadReq
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Unable to read workspace membership: %s", err))
 		return
 	}
+	inherited, err := r.inheritedMembership(ctx, member)
+	if err != nil {
+		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Unable to read the organization role of user %s: %s", member.UserID, err))
+		return
+	}
+	if inherited {
+		resp.State.RemoveResource(ctx)
+		return
+	}
 
 	applyWorkspaceMember(&state, member)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
@@ -214,6 +225,25 @@ func (r *workspaceMemberResource) ImportState(ctx context.Context, req resource.
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("workspace_id"), workspaceId)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("user_id"), userId)...)
+}
+
+// inheritedMembership reports a membership that comes from the organization
+// role, which no workspace call can change or remove.
+func (r *workspaceMemberResource) inheritedMembership(ctx context.Context, member *anthropic.WorkspaceMember) (bool, error) {
+	switch member.WorkspaceRole {
+	case anthropic.WorkspaceRoleWorkspaceBilling:
+		return true, nil
+	case anthropic.WorkspaceRoleWorkspaceAdmin:
+		user, err := r.client.Organization.Users.Get(ctx, member.UserID)
+		if isNotFound(err) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return user.Role == anthropic.OrganizationRoleAdmin, nil
+	}
+	return false, nil
 }
 
 func (r *workspaceMemberResource) workspaceGone(ctx context.Context, workspaceID string) (bool, error) {

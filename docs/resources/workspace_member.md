@@ -10,7 +10,9 @@ description: |-
   in every workspace through their organization role; that membership cannot be
   added, changed, or removed here, so change the organization role instead.
   Creating this resource refuses to take over a membership that already exists,
-  including an inherited one; import an explicit membership instead. Destroying
+  including an inherited one; import an explicit membership instead. An
+  inherited membership cannot be imported, and a user promoted to organization
+  admin or billing outside Terraform is removed from state. Destroying
   this resource removes the user from the workspace only, never from the
   organization. A membership removed outside Terraform, or a workspace archived
   outside Terraform, is removed from state and created again on the next apply.
@@ -27,7 +29,9 @@ in every workspace through their organization role; that membership cannot be
 added, changed, or removed here, so change the organization role instead.
 
 Creating this resource refuses to take over a membership that already exists,
-including an inherited one; import an explicit membership instead. Destroying
+including an inherited one; import an explicit membership instead. An
+inherited membership cannot be imported, and a user promoted to organization
+admin or billing outside Terraform is removed from state. Destroying
 this resource removes the user from the workspace only, never from the
 organization. A membership removed outside Terraform, or a workspace archived
 outside Terraform, is removed from state and created again on the next apply.

@@ -71,7 +71,7 @@ resource "anthropic_workspace" "test" {
 			if len(fake.workspaceUsers.members) != 0 {
 				return fmt.Errorf("expected destroy to remove the membership, %d left", len(fake.workspaceUsers.members))
 			}
-			if _, ok := fake.workspaceUsers.organizationRoles[userId]; !ok {
+			if _, ok := fake.organizationRole(userId); !ok {
 				return fmt.Errorf("destroy removed user %s from the organization", userId)
 			}
 			return nil
@@ -359,6 +359,65 @@ func TestAccWorkspaceMember_RejectsBillingRole(t *testing.T) {
 				Config:      workspaceMemberConfig(`"wrkspc_0001"`, "user_0001", "workspace_billing"),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`value must be one of`),
+			},
+		},
+	})
+}
+
+func TestAccWorkspaceMember_ImportInheritedMembershipFails(t *testing.T) {
+	for _, organizationRole := range []string{"admin", "billing"} {
+		t.Run(organizationRole, func(t *testing.T) {
+			fake := newFakeAdminAPI()
+			server := setupTestServer(t, fake)
+			setupTestClient(t, server)
+
+			fake.mu.Lock()
+			workspaceId := fake.seed("Membership", fakeDataResidency{})
+			userId := fake.seedOrganizationUser(organizationRole)
+			fake.mu.Unlock()
+
+			resource.Test(t, resource.TestCase{
+				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+				Steps: []resource.TestStep{
+					{
+						Config:        workspaceMemberConfig(fmt.Sprintf("%q", workspaceId), userId, "workspace_admin"),
+						ResourceName:  workspaceMemberAddress,
+						ImportState:   true,
+						ImportStateId: workspaceId + "/" + userId,
+						ExpectError:   regexp.MustCompile(`Cannot import non-existent remote object`),
+					},
+				},
+			})
+		})
+	}
+}
+
+func TestAccWorkspaceMember_PromotionToAdminLeavesState(t *testing.T) {
+	fake := newFakeAdminAPI()
+	server := setupTestServer(t, fake)
+	setupTestClient(t, server)
+
+	fake.mu.Lock()
+	workspaceId := fake.seed("Membership", fakeDataResidency{})
+	userId := fake.seedOrganizationUser("developer")
+	fake.mu.Unlock()
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: workspaceMemberConfig(fmt.Sprintf("%q", workspaceId), userId, "workspace_developer"),
+			},
+			{
+				PreConfig: func() {
+					fake.mu.Lock()
+					defer fake.mu.Unlock()
+					fake.promoteOrganizationUser(userId, "admin")
+				},
+				Config: testProviderConfig,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
 			},
 		},
 	})

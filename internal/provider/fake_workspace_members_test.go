@@ -24,21 +24,18 @@ type fakeWorkspaceMember struct {
 }
 
 // fakeWorkspaceMembers holds user memberships apart from service account
-// memberships, which carry different fields. organizationRoles lists every
-// user in the organization by ID; an organization admin or billing member
-// holds an inherited role in every workspace without an explicit row.
+// memberships, which carry different fields. Organization users live in
+// f.users; an organization admin or billing member holds an inherited role in
+// every workspace without an explicit row.
 type fakeWorkspaceMembers struct {
-	nextUserID        int
-	organizationRoles map[string]string
-	members           map[string]*fakeWorkspaceMember
+	members map[string]*fakeWorkspaceMember
 }
 
 // registerWorkspaceMemberRoutes adds the workspace member endpoints to the
 // fake's mux. Called once from newFakeAdminAPI.
 func (f *fakeAdminAPI) registerWorkspaceMemberRoutes() {
 	f.workspaceUsers = fakeWorkspaceMembers{
-		organizationRoles: make(map[string]string),
-		members:           make(map[string]*fakeWorkspaceMember),
+		members: make(map[string]*fakeWorkspaceMember),
 	}
 
 	f.mux.HandleFunc("POST /v1/organizations/workspaces/{workspace_id}/members", f.withLiveWorkspace(f.addWorkspaceMember))
@@ -69,10 +66,30 @@ func (f *fakeAdminAPI) withLiveWorkspace(fn func(http.ResponseWriter, *http.Requ
 // seedOrganizationUser and seedWorkspaceMember simulate changes made outside
 // Terraform. Callers outside ServeHTTP must hold mu.
 func (f *fakeAdminAPI) seedOrganizationUser(organizationRole string) string {
-	f.workspaceUsers.nextUserID++
-	id := fmt.Sprintf("user_%04d", f.workspaceUsers.nextUserID)
-	f.workspaceUsers.organizationRoles[id] = organizationRole
-	return id
+	n := f.users.nextUserID + 1
+	return f.seedUser(fmt.Sprintf("member%d@example.com", n), fmt.Sprintf("Member %d", n), organizationRole)
+}
+
+func (f *fakeAdminAPI) organizationRole(userID string) (string, bool) {
+	user, ok := f.users.members[userID]
+	if !ok {
+		return "", false
+	}
+	return user.Role, true
+}
+
+// promoteOrganizationUser simulates an organization role change made outside
+// Terraform. An inherited role replaces the user's explicit memberships.
+func (f *fakeAdminAPI) promoteOrganizationUser(userID, organizationRole string) {
+	f.users.members[userID].Role = organizationRole
+	if _, ok := fakeInheritedWorkspaceRoles[organizationRole]; !ok {
+		return
+	}
+	for key, member := range f.workspaceUsers.members {
+		if member.UserID == userID {
+			delete(f.workspaceUsers.members, key)
+		}
+	}
 }
 
 func (f *fakeAdminAPI) seedWorkspaceMember(workspaceID, userID, role string) {
@@ -88,14 +105,16 @@ func (f *fakeAdminAPI) workspaceMember(workspaceID, userID string) (*fakeWorkspa
 	if member, ok := f.workspaceUsers.members[workspaceID+"/"+userID]; ok {
 		return member, true
 	}
-	if role, ok := fakeInheritedWorkspaceRoles[f.workspaceUsers.organizationRoles[userID]]; ok {
+	organizationRole, _ := f.organizationRole(userID)
+	if role, ok := fakeInheritedWorkspaceRoles[organizationRole]; ok {
 		return &fakeWorkspaceMember{Type: "workspace_member", UserID: userID, WorkspaceID: workspaceID, WorkspaceRole: role}, true
 	}
 	return nil, false
 }
 
 func (f *fakeAdminAPI) inheritedWorkspaceRole(userID string) bool {
-	_, ok := fakeInheritedWorkspaceRoles[f.workspaceUsers.organizationRoles[userID]]
+	organizationRole, _ := f.organizationRole(userID)
+	_, ok := fakeInheritedWorkspaceRoles[organizationRole]
 	return ok
 }
 
@@ -112,7 +131,7 @@ func (f *fakeAdminAPI) addWorkspaceMember(w http.ResponseWriter, r *http.Request
 		fakeInvalid(w, "workspace_role: cannot be workspace_billing")
 		return
 	}
-	if _, ok := f.workspaceUsers.organizationRoles[body.UserID]; !ok {
+	if _, ok := f.organizationRole(body.UserID); !ok {
 		writeAPIError(w, http.StatusNotFound, "not_found_error", "User not found")
 		return
 	}
@@ -183,8 +202,8 @@ func (f *fakeAdminAPI) removeWorkspaceMember(w http.ResponseWriter, r *http.Requ
 }
 
 func (f *fakeAdminAPI) listWorkspaceMembers(w http.ResponseWriter, r *http.Request, workspaceID string) {
-	userIDs := make([]string, 0, len(f.workspaceUsers.organizationRoles))
-	for userID := range f.workspaceUsers.organizationRoles {
+	userIDs := make([]string, 0, len(f.users.members))
+	for userID := range f.users.members {
 		if _, ok := f.workspaceMember(workspaceID, userID); ok {
 			userIDs = append(userIDs, userID)
 		}
